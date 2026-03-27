@@ -77,10 +77,10 @@ export default function ContactsPage() {
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <h1 className="font-[var(--font-heading)] text-2xl font-bold uppercase tracking-tight text-white md:text-3xl">Messages & Demandes</h1>
-        <p className="mt-1 text-sm text-white/40">{contacts.length} message(s) au total</p>
+    <div className="min-w-0">
+      <div className="mb-4 sm:mb-6">
+        <h1 className="font-[var(--font-heading)] text-xl font-bold uppercase tracking-tight text-white sm:text-2xl md:text-3xl">Messages & Demandes</h1>
+        <p className="mt-0.5 text-xs text-white/40 sm:text-sm">{contacts.length} message(s)</p>
       </div>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -96,9 +96,52 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      <div className="flex gap-6">
-        {/* Table */}
-        <div className={cn("flex-1 rounded-lg border border-white/5 bg-white/[0.02]", selectedContact && "hidden lg:block")}>
+      {/* Selected contact detail (mobile fullscreen) */}
+      {selectedContact && (
+        <div className="mb-4 rounded-lg border border-white/5 bg-white/[0.02] p-4 sm:p-6 lg:hidden">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-white/60">Détails</h3>
+            <button onClick={() => setSelectedContact(null)} className="rounded-sm p-1 text-white/30 hover:text-white/60"><XIcon className="h-4 w-4" /></button>
+          </div>
+          <div className="flex flex-col gap-3">
+            <div><p className="text-xs uppercase tracking-wide text-white/30">Nom</p><p className="mt-0.5 text-sm font-medium text-white/80">{selectedContact.name}</p></div>
+            <div><p className="text-xs uppercase tracking-wide text-white/30">Téléphone</p><p className="mt-0.5 text-sm text-white/60">{selectedContact.phone}</p></div>
+            {selectedContact.email && <div><p className="text-xs uppercase tracking-wide text-white/30">Email</p><p className="mt-0.5 text-sm text-white/60">{selectedContact.email}</p></div>}
+            <div><p className="text-xs uppercase tracking-wide text-white/30">Sujet</p><div className="mt-0.5">{subjectBadge(selectedContact.subject)}</div></div>
+            <div><p className="text-xs uppercase tracking-wide text-white/30">Date</p><p className="mt-0.5 text-sm text-white/60">{new Date(selectedContact.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p></div>
+            {selectedContact.message && <div><p className="text-xs uppercase tracking-wide text-white/30">Message</p><p className="mt-1 whitespace-pre-wrap rounded-sm bg-white/5 p-3 text-sm leading-relaxed text-white/70">{selectedContact.message}</p></div>}
+            <button onClick={() => deleteContact(selectedContact.id)} className="mt-2 flex items-center justify-center gap-2 rounded-sm bg-red-500/10 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Supprimer</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Cards */}
+      <div className="flex flex-col gap-3 lg:hidden">
+        {filtered.length === 0 ? (
+          <p className="py-12 text-center text-sm text-white/30">Aucun message trouvé.</p>
+        ) : (
+          filtered.map((c) => (
+            <div key={c.id} onClick={() => setSelectedContact(c)} className={cn("cursor-pointer rounded-lg border border-white/5 bg-white/[0.02] p-4 transition-colors", selectedContact?.id === c.id && "border-fiver-green/30")}>
+              <div className="mb-2 flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white/80">{c.name}</p>
+                  <p className="text-xs text-white/30">{c.phone}</p>
+                </div>
+                {subjectBadge(c.subject)}
+              </div>
+              {c.message && <p className="mb-2 line-clamp-2 text-xs text-white/40">{c.message}</p>}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/20">{new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                <button onClick={(e) => { e.stopPropagation(); deleteContact(c.id); }} className="rounded-sm p-1.5 text-red-400/60 hover:text-red-400"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop: Table + Side Panel */}
+      <div className="hidden gap-6 lg:flex">
+        <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02]">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -120,9 +163,7 @@ export default function ContactsPage() {
                         <p className="text-xs text-white/30">{c.phone}</p>
                       </td>
                       <td className="px-5 py-3.5">{subjectBadge(c.subject)}</td>
-                      <td className="px-5 py-3.5 text-sm text-white/60">
-                        {new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                      </td>
+                      <td className="px-5 py-3.5 text-sm text-white/60">{new Date(c.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={(e) => { e.stopPropagation(); setSelectedContact(c); }} className="rounded-sm p-1.5 text-fiver-green/60 transition-colors hover:bg-fiver-green/10 hover:text-fiver-green" title="Voir"><Eye className="h-4 w-4" /></button>
@@ -137,47 +178,20 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        {/* Detail Panel */}
         {selectedContact && (
-          <div className="w-full rounded-lg border border-white/5 bg-white/[0.02] p-6 lg:w-96">
+          <div className="w-96 rounded-lg border border-white/5 bg-white/[0.02] p-6">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-white/60">Détails</h3>
               <button onClick={() => setSelectedContact(null)} className="rounded-sm p-1 text-white/30 hover:text-white/60"><XIcon className="h-4 w-4" /></button>
             </div>
             <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/30">Nom</p>
-                <p className="mt-1 text-sm font-medium text-white/80">{selectedContact.name}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/30">Téléphone</p>
-                <p className="mt-1 text-sm text-white/60">{selectedContact.phone}</p>
-              </div>
-              {selectedContact.email && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-white/30">Email</p>
-                  <p className="mt-1 text-sm text-white/60">{selectedContact.email}</p>
-                </div>
-              )}
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/30">Sujet</p>
-                <div className="mt-1">{subjectBadge(selectedContact.subject)}</div>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-white/30">Date</p>
-                <p className="mt-1 text-sm text-white/60">
-                  {new Date(selectedContact.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </p>
-              </div>
-              {selectedContact.message && (
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-white/30">Message</p>
-                  <p className="mt-1 whitespace-pre-wrap rounded-sm bg-white/5 p-3 text-sm leading-relaxed text-white/70">{selectedContact.message}</p>
-                </div>
-              )}
-              <button onClick={() => deleteContact(selectedContact.id)} className="mt-2 flex items-center justify-center gap-2 rounded-sm bg-red-500/10 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20">
-                <Trash2 className="h-3.5 w-3.5" /> Supprimer ce message
-              </button>
+              <div><p className="text-xs uppercase tracking-wide text-white/30">Nom</p><p className="mt-1 text-sm font-medium text-white/80">{selectedContact.name}</p></div>
+              <div><p className="text-xs uppercase tracking-wide text-white/30">Téléphone</p><p className="mt-1 text-sm text-white/60">{selectedContact.phone}</p></div>
+              {selectedContact.email && <div><p className="text-xs uppercase tracking-wide text-white/30">Email</p><p className="mt-1 text-sm text-white/60">{selectedContact.email}</p></div>}
+              <div><p className="text-xs uppercase tracking-wide text-white/30">Sujet</p><div className="mt-1">{subjectBadge(selectedContact.subject)}</div></div>
+              <div><p className="text-xs uppercase tracking-wide text-white/30">Date</p><p className="mt-1 text-sm text-white/60">{new Date(selectedContact.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p></div>
+              {selectedContact.message && <div><p className="text-xs uppercase tracking-wide text-white/30">Message</p><p className="mt-1 whitespace-pre-wrap rounded-sm bg-white/5 p-3 text-sm leading-relaxed text-white/70">{selectedContact.message}</p></div>}
+              <button onClick={() => deleteContact(selectedContact.id)} className="mt-2 flex items-center justify-center gap-2 rounded-sm bg-red-500/10 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"><Trash2 className="h-3.5 w-3.5" /> Supprimer</button>
             </div>
           </div>
         )}
