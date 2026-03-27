@@ -235,11 +235,29 @@ export function BookingFlow() {
             <p className="text-center text-sm text-muted-foreground">Aucun créneau disponible pour cette date.</p>
           ) : (
             <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
-              {availableSlots.map((slot) => (
-                <button key={slot.time} onClick={() => { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); }}
-                  className={cn("rounded-sm px-4 py-3 text-sm font-medium transition-colors", selectedSlot !== slot.time && "bg-secondary text-foreground hover:bg-fiver-green/10", selectedSlot === slot.time && "bg-fiver-green text-fiver-black")}
-                >{slot.time}</button>
-              ))}
+              {availableSlots.map((slot) => {
+                // Check how many pitches are available for this slot
+                const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
+                const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
+                const fullyBooked = pitch1Booked && pitch2Booked;
+                const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
+
+                return (
+                  <button key={slot.time} disabled={fullyBooked}
+                    onClick={() => { if (!fullyBooked) { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); } }}
+                    className={cn(
+                      "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors",
+                      fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through",
+                      !fullyBooked && selectedSlot !== slot.time && "bg-secondary text-foreground hover:bg-fiver-green/10",
+                      selectedSlot === slot.time && "bg-fiver-green text-fiver-black"
+                    )}
+                  >
+                    {slot.time}
+                    {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: 'none' }}>Complet</span>}
+                    {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -32,16 +32,17 @@ export default function DashboardPage() {
   }, []);
 
   const today = new Date().toISOString().split("T")[0];
-  const todayReservations = reservations.filter((r) => r.date === today);
+  const todayReservations = reservations.filter((r) => r.date === today && r.status !== "cancelled");
   const pendingCount = reservations.filter((r) => r.status === "pending").length;
-  const confirmedToday = todayReservations.filter((r) => r.status === "confirmed").length;
-  const occupancyRate = todayReservations.length > 0 ? Math.round((confirmedToday / 16) * 100) : 0; // 16 max slots/day (8 slots x 2 pitches)
-  const revenue = confirmedToday * 10000;
+  const paidToday = todayReservations.filter((r) => r.status === "paid").length;
+  const activeToday = todayReservations.filter((r) => r.status === "confirmed" || r.status === "paid").length;
+  const occupancyRate = Math.round((activeToday / 16) * 100); // 16 max slots/day (8 slots x 2 pitches)
+  const revenue = paidToday * 10000;
 
   const kpiCards = [
     { label: "Réservations aujourd'hui", value: String(todayReservations.length), change: "", icon: CalendarCheck, color: "text-fiver-green" },
-    { label: "Revenus du jour", value: `${revenue.toLocaleString()} MRU`, change: "", icon: DollarSign, color: "text-emerald-400" },
-    { label: "Taux d'occupation", value: `${occupancyRate}%`, change: "", icon: TrendingUp, color: "text-blue-400" },
+    { label: "Revenus du jour", value: `${revenue.toLocaleString()} MRU`, change: `${paidToday} payée(s)`, icon: DollarSign, color: "text-emerald-400" },
+    { label: "Taux d'occupation", value: `${occupancyRate}%`, change: `${activeToday}/16 créneaux`, icon: TrendingUp, color: "text-blue-400" },
     { label: "En attente", value: String(pendingCount), change: "", icon: Clock, color: "text-amber-400" },
   ];
 
@@ -89,6 +90,7 @@ export default function DashboardPage() {
               <kpi.icon className={`h-4 w-4 ${kpi.color}`} />
             </div>
             <p className="font-[var(--font-heading)] text-2xl font-bold text-white">{kpi.value}</p>
+            {kpi.change && <p className="mt-1 text-xs text-white/30">{kpi.change}</p>}
           </div>
         ))}
       </div>
