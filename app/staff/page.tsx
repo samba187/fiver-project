@@ -19,7 +19,7 @@ export default function StaffPage() {
     setError("");
     setLoading(true);
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -30,18 +30,24 @@ export default function StaffPage() {
       return;
     }
 
-    router.push("/staff/dashboard");
+    // Route based on role: emails containing "admin" go to admin dashboard, others to gestion
+    const userEmail = authData.user?.email?.toLowerCase() || "";
+    if (userEmail.includes("admin")) {
+      router.push("/staff/dashboard");
+    } else {
+      router.push("/staff/gestion/reservations");
+    }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-fiver-black px-4">
+    <main className="flex min-h-[100dvh] items-center justify-center bg-fiver-black p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-fiver-green/10">
             <Lock className="h-6 w-6 text-fiver-green" />
           </div>
           <Link href="/" className="inline-block">
-            <Image src="/logo.png" alt="FIVER Soccer" width={120} height={40} className="mx-auto h-8 w-auto" />
+            <Image src="/logo.png" alt="FIVEUR ARENA" width={120} height={40} className="mx-auto h-8 w-auto" />
           </Link>
           <p className="mt-3 text-sm text-primary-foreground/50">
             Espace réservé au personnel

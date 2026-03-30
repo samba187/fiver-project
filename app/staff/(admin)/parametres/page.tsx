@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Save, Check } from "lucide-react";
+import { Save, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 export default function ParametresPage() {
@@ -15,11 +15,44 @@ export default function ParametresPage() {
   const [priceWeekday, setPriceWeekday] = useState("10000");
   const [priceWeekend, setPriceWeekend] = useState("12000");
 
+  const [closedDatesStr, setClosedDatesStr] = useState("");
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdError, setPwdError] = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
+
+  const today = new Date();
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+
+  const MONTHS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  const DAYS_OF_WEEK = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+  function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(viewMonth - 1); }
+  function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
+
+  function getCalendarDays(year: number, month: number) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startPad = (firstDay.getDay() + 6) % 7;
+    const days: (number | null)[] = [];
+    for (let i = 0; i < startPad; i++) days.push(null);
+    for (let d = 1; d <= lastDay.getDate(); d++) days.push(d);
+    return days;
+  }
+  const calendarDays = getCalendarDays(viewYear, viewMonth);
+
+  function toggleDate(d: number) {
+    const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    let arr = closedDatesStr ? closedDatesStr.split(",").map(x => x.trim()).filter(Boolean) : [];
+    if (arr.includes(dateStr)) {
+      arr = arr.filter(x => x !== dateStr);
+    } else {
+      arr.push(dateStr);
+    }
+    setClosedDatesStr(arr.join(", "));
+  }
 
   useEffect(() => {
     async function fetchSettings() {
@@ -32,6 +65,7 @@ export default function ParametresPage() {
         if (map.weekend_close) setWeekendClose(map.weekend_close);
         if (map.price_weekday) setPriceWeekday(map.price_weekday);
         if (map.price_weekend) setPriceWeekend(map.price_weekend);
+        if (map.closed_dates) setClosedDatesStr(map.closed_dates);
       }
       setLoading(false);
     }
@@ -46,9 +80,15 @@ export default function ParametresPage() {
       { key: "weekend_close", value: weekendClose },
       { key: "price_weekday", value: priceWeekday },
       { key: "price_weekend", value: priceWeekend },
+      { key: "closed_dates", value: closedDatesStr },
     ];
     for (const u of updates) {
-      await supabase.from("settings").update({ value: u.value }).eq("key", u.key);
+      const { data } = await supabase.from("settings").select("key").eq("key", u.key).limit(1);
+      if (data && data.length > 0) {
+        await supabase.from("settings").update({ value: u.value }).eq("key", u.key);
+      } else {
+        await supabase.from("settings").insert({ key: u.key, value: u.value });
+      }
     }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -124,6 +164,47 @@ export default function ParametresPage() {
             <div><label className={labelClass}>Lun — Ven</label><div className="relative"><input type="number" value={priceWeekday} onChange={(e) => setPriceWeekday(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
             <div><label className={labelClass}>Sam — Dim</label><div className="relative"><input type="number" value={priceWeekend} onChange={(e) => setPriceWeekend(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
           </div>
+        </div>
+
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
+          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Dates fermées (Fermeture exceptionnelle)</h2>
+          <p className="mb-5 text-xs text-white/40">Cliquez sur les jours du calendrier ci-dessous pour fermer le complexe entièrement.</p>
+          
+          <div className="mx-auto mb-4 max-w-sm rounded-sm bg-white/5 p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <button onClick={prevMonth} className="rounded-sm p-1 text-white/40 hover:text-white"><ChevronLeft className="h-5 w-5" /></button>
+              <span className="text-sm font-semibold uppercase text-white">{MONTHS[viewMonth]} {viewYear}</span>
+              <button onClick={nextMonth} className="rounded-sm p-1 text-white/40 hover:text-white"><ChevronRight className="h-5 w-5" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {DAYS_OF_WEEK.map((d) => <div key={d} className="py-1 text-center text-xs font-medium text-white/40">{d}</div>)}
+              {calendarDays.map((day, idx) => {
+                if (!day) return <div key={`pad-${idx}`} className="h-8" />;
+                const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const isSelected = closedDatesStr.split(",").map(x => x.trim()).includes(dateStr);
+                return (
+                  <button key={day} onClick={() => toggleDate(day)}
+                    className={`h-8 w-full rounded-sm text-xs font-medium transition-colors ${isSelected ? "border border-red-500/30 bg-red-500/20 text-red-400" : "bg-white/5 text-white/70 hover:bg-white/10"}`}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          
+          {closedDatesStr.trim().length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {closedDatesStr.split(",").map(x => x.trim()).filter(Boolean).sort().map(date => (
+                <span key={date} className="flex items-center gap-1.5 rounded-sm bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-400">
+                  {date}
+                  <button onClick={() => setClosedDatesStr(closedDatesStr.split(",").map(d => d.trim()).filter(d => d !== date).join(", "))}>
+                    <X className="h-3 w-3 hover:text-white" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <button onClick={handleSaveSettings} className="flex items-center justify-center gap-2 rounded-sm bg-fiver-green py-3 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { Check, Loader2 } from "lucide-react";
 
-const CATEGORIES = ["U9", "U12", "U13", "U15"];
+const CATEGORIES = ["U7", "U9", "U11", "U13", "U15"];
 
 export function InscriptionForm() {
   const [childName, setChildName] = useState("");
@@ -24,14 +24,14 @@ export function InscriptionForm() {
     setSubmitting(true);
     setError("");
 
-    const { error: dbError } = await supabase.from("inscriptions").insert({
-      child_name: childName,
-      child_age: childAge ? parseInt(childAge) : null,
+    const { error: dbError } = await supabase.from("loisirs_children").insert({
+      full_name: childName,
+      age: childAge ? parseInt(childAge) : null,
       category,
       parent_name: parentName,
       parent_phone: parentPhone,
       parent_email: parentEmail || null,
-      status: "pending",
+      status: "active",
     });
 
     if (dbError) {

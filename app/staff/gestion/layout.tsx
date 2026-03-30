@@ -5,43 +5,26 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  LayoutDashboard,
   CalendarCheck,
-  LayoutGrid,
-  Users,
-  ClipboardList,
-  MessageCircle,
-  Settings,
+  CalendarDays,
   LogOut,
   Menu,
   X,
-  BarChart3,
-  Trash2,
-  Medal,
-  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
 const SIDEBAR_LINKS = [
-  { href: "/staff/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-  { href: "/staff/reservations", label: "Réservations", icon: CalendarCheck },
-  { href: "/staff/academy", label: "Academy", icon: Medal },
-  { href: "/staff/loisirs", label: "Centre Loisirs", icon: Star },
-  { href: "/staff/contacts", label: "Messages", icon: MessageCircle },
-  { href: "/staff/terrains", label: "Terrains", icon: LayoutGrid },
-  { href: "/staff/clients", label: "Clients", icon: Users },
-  { href: "/staff/rapports", label: "Rapports", icon: BarChart3 },
-  { href: "/staff/corbeille", label: "Corbeille", icon: Trash2 },
-  { href: "/staff/parametres", label: "Paramètres", icon: Settings },
+  { href: "/staff/gestion/reservations", label: "Réservations", icon: CalendarCheck },
+  { href: "/staff/gestion/calendrier", label: "Calendrier", icon: CalendarDays },
 ];
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function GestionLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [authed, setAuthed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [userEmail, setUserEmail] = useState("Admin");
+  const [userEmail, setUserEmail] = useState("Gestion");
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -49,7 +32,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         router.replace("/staff");
       } else {
         setAuthed(true);
-        setUserEmail(data.user.email || "Admin");
+        setUserEmail(data.user.email || "Gestion");
       }
     });
   }, [router]);
@@ -67,16 +50,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  const displayName = userEmail.split("@")[0] || "Admin";
+  const displayName = userEmail.split("@")[0] || "Gestion";
 
   return (
     <div className="flex min-h-[100dvh] bg-[#0d0d0d]">
       {/* Sidebar — Desktop */}
       <aside className="hidden w-64 flex-col border-r border-white/5 bg-fiver-black lg:flex">
         <div className="flex h-16 items-center gap-3 border-b border-white/5 px-6">
-          <Image src="/logo.png" alt="FIVER" width={100} height={32} className="h-7 w-auto" />
+          <Image src="/logo.png" alt="FIVEUR ARENA" width={100} height={32} className="h-7 w-auto" />
         </div>
         <nav className="flex-1 px-3 py-4">
+          <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-white/20">Espace Gestion</p>
           <ul className="flex flex-col gap-1">
             {SIDEBAR_LINKS.map((link) => {
               const active = pathname === link.href;
@@ -101,12 +85,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
         <div className="border-t border-white/5 p-4">
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-fiver-green/20 text-xs font-bold text-fiver-green">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500/20 text-xs font-bold text-blue-400">
               {displayName.charAt(0).toUpperCase()}
             </div>
             <div>
               <p className="text-sm font-medium text-white/80">{displayName}</p>
-              <p className="text-xs text-white/40">Administrateur</p>
+              <p className="text-xs text-blue-400/70">Gestionnaire</p>
             </div>
           </div>
           <button
@@ -122,7 +106,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* Mobile Header */}
       <div className="flex flex-1 flex-col">
         <header className="flex h-14 items-center justify-between border-b border-white/5 bg-fiver-black px-4 lg:hidden">
-          <Image src="/logo.png" alt="FIVER" width={80} height={28} className="h-6 w-auto" />
+          <Image src="/logo.png" alt="FIVEUR ARENA" width={80} height={28} className="h-6 w-auto" />
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white/70" aria-label="Menu">
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -133,12 +117,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="absolute inset-0 bg-black/60" onClick={() => setSidebarOpen(false)} />
             <aside className="absolute left-0 top-0 flex h-full w-64 flex-col bg-fiver-black">
               <div className="flex h-14 items-center justify-between border-b border-white/5 px-4">
-                <Image src="/logo.png" alt="FIVER" width={80} height={28} className="h-6 w-auto" />
+                <Image src="/logo.png" alt="FIVEUR ARENA" width={80} height={28} className="h-6 w-auto" />
                 <button onClick={() => setSidebarOpen(false)} className="text-white/70">
                   <X className="h-5 w-5" />
                 </button>
               </div>
               <nav className="flex-1 px-3 py-4">
+                <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-widest text-white/20">Espace Gestion</p>
                 <ul className="flex flex-col gap-1">
                   {SIDEBAR_LINKS.map((link) => {
                     const active = pathname === link.href;

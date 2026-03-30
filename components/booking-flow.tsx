@@ -3,7 +3,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2 } from "lucide-react";
+import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2, Smartphone, CreditCard, Banknote } from "lucide-react";
+
+const PAYMENT_METHODS = [
+  { value: "bankily", label: "Bankily", icon: Smartphone, desc: "Paiement mobile", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
+  { value: "masrvi", label: "Masrvi", icon: CreditCard, desc: "Paiement mobile", color: "border-purple-500 bg-purple-500/10 text-purple-400" },
+  { value: "especes", label: "Espèces", icon: Banknote, desc: "À l'accueil", color: "border-green-500 bg-green-500/10 text-green-400" },
+];
 
 const STEPS = [
   { id: 1, label: "Date", icon: Calendar },
@@ -20,6 +26,8 @@ const ALL_SLOTS = [
   { time: "18h-19h", startHour: 18 }, { time: "19h-20h", startHour: 19 },
   { time: "20h-21h", startHour: 20 }, { time: "21h-22h", startHour: 21 },
   { time: "22h-23h", startHour: 22 }, { time: "23h-00h", startHour: 23 },
+  { time: "00h-01h", startHour: 0 }, { time: "01h-02h", startHour: 1 },
+  { time: "02h-03h", startHour: 2 },
 ];
 
 const DAYS_OF_WEEK = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -50,6 +58,7 @@ export function BookingFlow() {
   const [selectedPitch, setSelectedPitch] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -57,6 +66,9 @@ export function BookingFlow() {
   // Dynamic settings from Supabase
   const [openHour, setOpenHour] = useState(16);
   const [closeHour, setCloseHour] = useState(24);
+  const [priceWeekday, setPriceWeekday] = useState(10000);
+  const [priceWeekend, setPriceWeekend] = useState(12000);
+  const [closedDates, setClosedDates] = useState<string[]>([]);
   const [pitchStatuses, setPitchStatuses] = useState<Record<string, string>>({ "Terrain 1": "available", "Terrain 2": "available" });
   const [bookedSlots, setBookedSlots] = useState<Set<string>>(new Set());
 
@@ -65,16 +77,23 @@ export function BookingFlow() {
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const calendarDays = useMemo(() => getCalendarDays(viewYear, viewMonth), [viewYear, viewMonth]);
 
-  const PRICE = 10000;
+  const currentPrice = useMemo(() => {
+    if (!selectedDate) return priceWeekday;
+    const isWeekend = selectedDate.getDay() === 0 || selectedDate.getDay() === 6;
+    return isWeekend ? priceWeekend : priceWeekday;
+  }, [selectedDate, priceWeekday, priceWeekend]);
 
   useEffect(() => {
     async function fetchSettings() {
       const { data } = await supabase.from("settings").select("key, value");
       if (data) {
         const map = Object.fromEntries(data.map((s) => [s.key, s.value]));
-        const isWeekend = selectedDate ? (selectedDate.getDay() === 0 || selectedDate.getDay() === 6) : false;
-        if (map[isWeekend ? "weekend_open" : "weekday_open"]) setOpenHour(parseHour(map[isWeekend ? "weekend_open" : "weekday_open"]));
-        if (map[isWeekend ? "weekend_close" : "weekday_close"]) setCloseHour(parseHour(map[isWeekend ? "weekend_close" : "weekday_close"]));
+        const isWeekend = selectedDate && (selectedDate.getDay() === 0 || selectedDate.getDay() === 6);
+        setOpenHour(parseHour(isWeekend ? (map.weekend_open || "10:00") : (map.weekday_open || "16:00")));
+        setCloseHour(parseHour(isWeekend ? (map.weekend_close || "00:00") : (map.weekday_close || "00:00")));
+        if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
+        if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
+        if (map.closed_dates) setClosedDates(map.closed_dates.split(",").map((d: string) => d.trim()));
         setPitchStatuses({
           "Terrain 1": map.pitch_1_status || "available",
           "Terrain 2": map.pitch_2_status || "available",
@@ -87,7 +106,10 @@ export function BookingFlow() {
   useEffect(() => {
     async function fetchBooked() {
       if (!selectedDate) return;
-      const dateStr = selectedDate.toISOString().split("T")[0];
+      const y = selectedDate.getFullYear();
+      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+      const d = String(selectedDate.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
       const { data } = await supabase.from("reservations").select("time, pitch").eq("date", dateStr).neq("status", "cancelled");
       if (data) {
         const set = new Set<string>();
@@ -99,7 +121,20 @@ export function BookingFlow() {
   }, [selectedDate]);
 
   const availableSlots = useMemo(() => {
-    return ALL_SLOTS.filter((s) => s.startHour >= openHour && s.startHour < closeHour).map((s) => ({ time: s.time }));
+    if (selectedDate) {
+      const y = selectedDate.getFullYear();
+      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+      const d = String(selectedDate.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+      if (closedDates.includes(dateStr)) return [];
+    }
+
+    return ALL_SLOTS.filter((s) => {
+      if (closeHour <= openHour) {
+        return s.startHour >= openHour || s.startHour < closeHour;
+      }
+      return s.startHour >= openHour && s.startHour < closeHour;
+    }).map((s) => ({ time: s.time }));
   }, [openHour, closeHour]);
 
   const availablePitches = useMemo(() => [
@@ -110,17 +145,27 @@ export function BookingFlow() {
   function handlePrev() { if (step > 1) setStep(step - 1); }
   function handleReset() {
     setStep(1); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
-    setName(""); setPhone(""); setConfirmed(false); setError("");
+    setName(""); setPhone(""); setPaymentMethod(""); setConfirmed(false); setError("");
   }
   function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(viewMonth - 1); }
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
 
   async function handleConfirm() {
-    if (!selectedDate || !selectedSlot || !selectedPitch || !name || !phone) return;
+    if (!selectedDate || !selectedSlot || !selectedPitch || !name || !phone || !paymentMethod) return;
     setSubmitting(true);
     setError("");
-    const dateStr = selectedDate.toISOString().split("T")[0];
+    const y = selectedDate.getFullYear();
+    const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+    const d = String(selectedDate.getDate()).padStart(2, "0");
+    const dateStr = `${y}-${m}-${d}`;
     try {
+      // Check if client is banned
+      const { data: clientCheck } = await supabase.from("clients").select("is_banned").eq("phone", phone).single();
+      if (clientCheck?.is_banned) {
+        setError("Votre numéro de téléphone est bloqué. Veuillez contacter l'administration de Fiveur Arena.");
+        setSubmitting(false);
+        return;
+      }
       // Check if slot is still available before inserting
       const { data: existing } = await supabase
         .from("reservations")
@@ -138,6 +183,7 @@ export function BookingFlow() {
 
       const { error: dbError } = await supabase.from("reservations").insert({
         name, phone, date: dateStr, time: selectedSlot, pitch: selectedPitch, status: "pending",
+        payment_method: paymentMethod, total_price: currentPrice, amount_paid: 0, payment_confirmed: false,
       });
       if (dbError) { setError("Erreur lors de la réservation."); setSubmitting(false); return; }
 
@@ -166,7 +212,11 @@ export function BookingFlow() {
           {name}, votre terrain est réservé pour le {selectedDate?.toLocaleDateString("fr-FR")} de {selectedSlot} sur {selectedPitch}.
         </p>
         <div className="mt-4 rounded-sm bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-          💰 Paiement de {PRICE.toLocaleString()} MRU à régler sur place à l&apos;accueil.
+          {paymentMethod === "especes" ? (
+            <>💰 Paiement de {currentPrice.toLocaleString()} MRU à régler sur place à l&apos;accueil.</>
+          ) : (
+            <>⚠️ <strong>Attention :</strong> pour valider définitivement votre réservation, vous devez nous envoyer <strong>{currentPrice.toLocaleString()} MRU</strong> via <strong>{paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</strong>. Sans réception du paiement, votre réservation pourra être annulée.</>
+          )}
         </div>
         <button onClick={handleReset} className="mt-6 rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
           Nouvelle réservation
@@ -214,11 +264,20 @@ export function BookingFlow() {
                 if (day === null) return <div key={`empty-${idx}`} />;
                 const date = new Date(viewYear, viewMonth, day);
                 const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                const isClosed = closedDates.includes(dateStr);
+                const isDisabled = isPast || isClosed;
                 const isSelected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === viewMonth && selectedDate.getFullYear() === viewYear;
                 const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
                 return (
-                  <button key={day} disabled={isPast} onClick={() => { setSelectedDate(date); setTimeout(() => setStep(2), 200); }}
-                    className={cn("aspect-square rounded-sm text-sm font-medium transition-colors", isPast && "cursor-not-allowed text-muted-foreground/30", !isPast && !isSelected && "text-foreground hover:bg-fiver-green/10", isSelected && "bg-fiver-green text-fiver-black", isToday && !isSelected && "ring-1 ring-fiver-green/50")}
+                  <button key={day} disabled={isDisabled} onClick={() => { setSelectedDate(date); setTimeout(() => setStep(2), 200); }}
+                    className={cn(
+                      "aspect-square rounded-sm text-sm font-medium transition-colors",
+                      isDisabled ? "cursor-not-allowed text-muted-foreground/30 opacity-50" : "text-foreground hover:bg-fiver-green/10",
+                      isClosed && !isPast && "bg-red-500/5 text-red-500 line-through",
+                      isSelected && "bg-fiver-green text-fiver-black",
+                      isToday && !isSelected && !isDisabled && "ring-1 ring-fiver-green/50"
+                    )}
                   >{day}</button>
                 );
               })}
@@ -293,8 +352,7 @@ export function BookingFlow() {
             <div className="rounded-sm bg-secondary/50 p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Récapitulatif</p>
               <p className="mt-1 text-sm text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlot} &middot; {selectedPitch}</p>
-              <p className="mt-1 font-[var(--font-heading)] text-lg font-bold text-fiver-green">{PRICE.toLocaleString()} MRU</p>
-              <p className="mt-1 text-xs text-amber-400">💰 À régler sur place</p>
+              <p className="mt-1 font-[var(--font-heading)] text-lg font-bold text-fiver-green">{currentPrice.toLocaleString()} MRU</p>
             </div>
             <div>
               <label htmlFor="booking-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom complet</label>
@@ -304,9 +362,29 @@ export function BookingFlow() {
               <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Téléphone</label>
               <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+222 XX XX XX XX" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
             </div>
+            <div>
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
+              <div className="grid grid-cols-3 gap-2">
+                {PAYMENT_METHODS.map(pm => (
+                  <button key={pm.value} type="button" onClick={() => setPaymentMethod(pm.value)}
+                    className={cn("flex flex-col items-center gap-1.5 rounded-sm border-2 px-3 py-3 text-center transition-all",
+                      paymentMethod === pm.value ? pm.color : "border-border bg-card text-muted-foreground hover:border-muted-foreground/30"
+                    )}>
+                    <pm.icon className="h-5 w-5" />
+                    <span className="text-xs font-semibold">{pm.label}</span>
+                    <span className="text-[10px] opacity-60">{pm.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {paymentMethod && paymentMethod !== "especes" && (
+              <div className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-400">
+                ⚠️ <strong>Attention :</strong> pour valider définitivement votre réservation, vous devez nous envoyer <strong>{currentPrice.toLocaleString()} MRU</strong> via <strong>{paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</strong>. Sans réception du paiement, votre réservation pourra être annulée.
+              </div>
+            )}
             {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
-            <button onClick={handleConfirm} disabled={!name || !phone || submitting}
-              className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-3 text-sm font-semibold uppercase tracking-wide transition-opacity", name && phone && !submitting ? "bg-fiver-green text-fiver-black hover:opacity-90" : "cursor-not-allowed bg-secondary text-muted-foreground")}
+            <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
+              className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-3 text-sm font-semibold uppercase tracking-wide transition-opacity", name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:opacity-90" : "cursor-not-allowed bg-secondary text-muted-foreground")}
             >
               {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Réservation en cours...</> : "Confirmer la réservation"}
             </button>

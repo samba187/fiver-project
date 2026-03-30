@@ -6,23 +6,31 @@ import { Star, Users, Calendar, Award, Shield, Heart, Zap, Trophy } from "lucide
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Centre de Loisirs U9-U15 | FIVER Soccer",
+  title: "Centre de Loisirs U9-U15 | FIVEUR ARENA",
   description:
-    "Inscrivez votre enfant au Centre de Loisirs FIVER Soccer - programmes U9 à U15 avec encadrement professionnel à Nouakchott.",
+    "Inscrivez votre enfant au Centre de Loisirs FIVEUR ARENA - programmes U9 à U15 avec encadrement professionnel à Nouakchott.",
 };
 
 const CATEGORIES = [
   {
+    name: "U7",
+    age: "5-6 ans",
+    description: "Éveil sportif, jeux de coordination et premiers contacts avec le ballon.",
+    sessions: "Mer & Sam · 9h-10h",
+    spots: 16,
+    color: "from-green-400 to-emerald-500",
+  },
+  {
     name: "U9",
-    age: "6-8 ans",
+    age: "7-8 ans",
     description: "Découverte du football, psychomotricité et plaisir du jeu en petits groupes.",
     sessions: "Mer & Sam · 10h-11h30",
     spots: 16,
     color: "from-emerald-500 to-green-600",
   },
   {
-    name: "U12",
-    age: "9-11 ans",
+    name: "U11",
+    age: "9-10 ans",
     description: "Apprentissage des fondamentaux techniques et début du jeu collectif structuré.",
     sessions: "Mer & Sam · 11h30-13h",
     spots: 16,

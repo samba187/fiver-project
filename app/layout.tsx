@@ -11,9 +11,9 @@ const _oswald = Oswald({
 });
 
 export const metadata: Metadata = {
-  title: "FIVER Soccer | Complexe Five-a-Side - Nouakchott",
+  title: "FIVEUR ARENA | Complexe Five-a-Side - Nouakchott",
   description:
-    "FIVER Soccer - Complexe de football Five-a-Side a Nouakchott. Reservez votre terrain, inscrivez vos enfants a notre academie, et decouvrez nos actions solidaires.",
+    "FIVEUR ARENA - Complexe de football Five-a-Side a Nouakchott. Reservez votre terrain, inscrivez vos enfants a notre academie, et decouvrez nos actions solidaires.",
 };
 
 export const viewport: Viewport = {

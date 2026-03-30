@@ -19,10 +19,12 @@ const PILLARS = [
 ];
 
 const TEAMS = [
-  { name: "U13", age: "11-12 ans", training: "Lun, Mer, Ven — 17h-18h30", gradient: "from-blue-500 to-cyan-500" },
-  { name: "U15", age: "13-14 ans", training: "Mar, Jeu, Sam — 17h-18h30", gradient: "from-emerald-500 to-green-500" },
-  { name: "U17", age: "15-16 ans", training: "Lun, Mer, Ven — 18h30-20h", gradient: "from-amber-500 to-orange-500" },
-  { name: "Seniors", age: "17+ ans", training: "Mar, Jeu, Sam — 18h30-20h", gradient: "from-red-500 to-rose-500" },
+  { name: "U7", age: "5-6 ans", training: "Mer & Sam — 10h-11h", gradient: "from-pink-500 to-rose-500" },
+  { name: "U9", age: "7-8 ans", training: "Mer & Sam — 11h-12h30", gradient: "from-purple-500 to-violet-500" },
+  { name: "U11", age: "9-10 ans", training: "Lun, Mer, Ven — 16h-17h30", gradient: "from-blue-500 to-cyan-500" },
+  { name: "U13", age: "11-12 ans", training: "Lun, Mer, Ven — 17h-18h30", gradient: "from-emerald-500 to-green-500" },
+  { name: "U15", age: "13-14 ans", training: "Mar, Jeu, Sam — 17h-18h30", gradient: "from-amber-500 to-orange-500" },
+  { name: "U17", age: "15-16 ans", training: "Mar, Jeu, Sam — 18h30-20h", gradient: "from-red-500 to-rose-500" },
 ];
 
 

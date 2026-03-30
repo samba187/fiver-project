@@ -17,9 +17,25 @@ interface Reservation {
 export default function DashboardPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [priceWeekday, setPriceWeekday] = useState(10000);
+  const [priceWeekend, setPriceWeekend] = useState(12000);
+  const [totalSlotsDay, setTotalSlotsDay] = useState(16);
 
   useEffect(() => {
     async function fetchData() {
+      const { data: settingsData } = await supabase.from("settings").select("key, value");
+      if (settingsData) {
+        const map = Object.fromEntries(settingsData.map((s) => [s.key, s.value]));
+        if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
+        if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
+        
+        const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+        const oH = parseInt((isWeekend ? map.weekend_open : map.weekday_open)?.split(":")[0] || "16");
+        const cH = parseInt((isWeekend ? map.weekend_close : map.weekday_close)?.split(":")[0] || "0");
+        const cHEff = cH === 0 ? 24 : cH;
+        const totalHours = cHEff <= oH ? (24 - oH) + cHEff : cHEff - oH;
+        setTotalSlotsDay(totalHours * 2);
+      }
       const { data } = await supabase
         .from("reservations")
         .select("*")
@@ -31,18 +47,25 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  const today = new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const today = `${y}-${m}-${d}`;
   const todayReservations = reservations.filter((r) => r.date === today && r.status !== "cancelled");
   const pendingCount = reservations.filter((r) => r.status === "pending").length;
   const paidToday = todayReservations.filter((r) => r.status === "paid").length;
   const activeToday = todayReservations.filter((r) => r.status === "confirmed" || r.status === "paid").length;
-  const occupancyRate = Math.round((activeToday / 16) * 100); // 16 max slots/day (8 slots x 2 pitches)
-  const revenue = paidToday * 10000;
+  
+  const occupancyRate = totalSlotsDay > 0 ? Math.round((activeToday / totalSlotsDay) * 100) : 0;
+  const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+  const currentPrice = isWeekend ? priceWeekend : priceWeekday;
+  const revenue = paidToday * currentPrice;
 
   const kpiCards = [
     { label: "Réservations aujourd'hui", value: String(todayReservations.length), change: "", icon: CalendarCheck, color: "text-fiver-green" },
     { label: "Revenus du jour", value: `${revenue.toLocaleString()} MRU`, change: `${paidToday} payée(s)`, icon: DollarSign, color: "text-emerald-400" },
-    { label: "Taux d'occupation", value: `${occupancyRate}%`, change: `${activeToday}/16 créneaux`, icon: TrendingUp, color: "text-blue-400" },
+    { label: "Taux d'occupation", value: `${occupancyRate}%`, change: `${activeToday}/${totalSlotsDay} créneaux`, icon: TrendingUp, color: "text-blue-400" },
     { label: "En attente", value: String(pendingCount), change: "", icon: Clock, color: "text-amber-400" },
   ];
 

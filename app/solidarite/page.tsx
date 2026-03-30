@@ -6,9 +6,9 @@ import { Heart, HandHeart, Users, Lightbulb } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "FIVER Solidarity | FIVER Soccer",
+  title: "FIVER Solidarity | FIVEUR ARENA",
   description:
-    "Decouvrez les actions solidaires de FIVER Soccer - le football comme vecteur de changement social a Nouakchott.",
+    "Decouvrez les actions solidaires de FIVEUR ARENA - le football comme vecteur de changement social a Nouakchott.",
 };
 
 const ACTIONS = [
@@ -19,7 +19,7 @@ const ACTIONS = [
       "Des sessions gratuites pour les enfants des quartiers defavorises. Le football n'a pas de frontieres sociales.",
   },
   {
-    image: "/images/solidarity-2.jpg",
+    image: "/images/solidarity-equipments.png",
     title: "Equipements Solidaires",
     description:
       "Distribution de maillots, chaussures et equipements aux jeunes qui n'ont pas les moyens.",
@@ -48,7 +48,7 @@ export default function SolidaritePage() {
       <section className="relative flex min-h-[60vh] items-center justify-center bg-fiver-black pt-20">
         <Image
           src="/images/solidarity.jpg"
-          alt="Actions solidaires FIVER Soccer"
+          alt="Actions solidaires FIVEUR ARENA"
           fill
           className="object-cover opacity-30"
           priority
@@ -134,9 +134,9 @@ export default function SolidaritePage() {
             Chaque don contribue a offrir une chance aux jeunes de Nouakchott
             de vivre leur passion du football. Ensemble, faisons la difference.
           </p>
-          <button className="mt-8 rounded-sm bg-fiver-green px-8 py-3.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
+          <Link href="/contact" className="mt-8 inline-block rounded-sm bg-fiver-green px-8 py-3.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
             Faire un don
-          </button>
+          </Link>
         </div>
       </section>
 

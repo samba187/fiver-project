@@ -57,7 +57,7 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="mb-2 text-center">
             <span className="font-[var(--font-heading)] text-xs font-medium uppercase tracking-[0.3em] text-fiver-green">
-              Pourquoi FIVER
+              Pourquoi FIVEUR
             </span>
           </div>
           <h2 className="mb-12 text-center font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-primary-foreground md:text-4xl">
@@ -90,7 +90,7 @@ export default function Home() {
                 Solidarite
               </span>
               <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-foreground md:text-4xl">
-                FIVER Solidarity
+                FIVEUR Solidarity
               </h2>
               <p className="mt-4 max-w-md text-base leading-relaxed text-muted-foreground">
                 Le football comme vecteur de changement social.

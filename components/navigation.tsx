@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 const navLinks = [
   { href: "/", label: "Accueil" },
   { href: "/concept", label: "Concept" },
-  { href: "/centre-de-loisirs", label: "Centre de Loisirs" },
   { href: "/academy", label: "Fiveur Academy" },
+  { href: "/centre-de-loisirs", label: "Centre de Loisirs" },
   { href: "/solidarite", label: "Solidarity" },
   { href: "/contact", label: "Contact" },
 ];
@@ -24,7 +24,7 @@ export function Navigation() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-fiver-black/95 backdrop-blur-sm">
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 lg:px-8">
         <Link href="/" className="flex items-center gap-2">
-          <Image src="/logo.png" alt="FIVER Soccer" width={150} height={50} className="h-10 w-auto" priority />
+          <Image src="/logo.png" alt="FIVEUR ARENA" width={150} height={50} className="h-10 w-auto" priority />
         </Link>
 
         {/* Desktop Nav */}

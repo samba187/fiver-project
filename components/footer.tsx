@@ -9,7 +9,7 @@ export function Footer() {
         <div className="grid gap-12 md:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div>
-            <Image src="/logo.png" alt="FIVER Soccer" width={150} height={50} className="h-12 w-auto object-contain" />
+            <Image src="/logo.png" alt="FIVEUR ARENA" width={150} height={50} className="h-12 w-auto object-contain" />
             <p className="mt-4 text-sm leading-relaxed text-primary-foreground/60">
               Le premier complexe de football Five-a-Side a Nouakchott.
               Deux terrains, une passion.
@@ -94,7 +94,7 @@ export function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-primary-foreground/10 pt-8 md:flex-row">
           <p className="text-xs text-primary-foreground/40">
-            &copy; {new Date().getFullYear()} FIVER Soccer. Tous droits reserves.
+            &copy; {new Date().getFullYear()} FIVEUR ARENA. Tous droits reserves.
           </p>
           <Link
             href="/staff"

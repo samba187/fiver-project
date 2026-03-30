@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, Search, Check, X as XIcon, Trash2, DollarSign } from "lucide-react";
+import { Plus, Search, Check, X as XIcon, Trash2, DollarSign, Smartphone, CreditCard, Banknote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -13,9 +13,25 @@ interface Reservation {
   time: string;
   pitch: string;
   status: string;
+  payment_receiver?: string;
+  payment_method?: string;
+  payment_confirmed?: boolean;
+  amount_paid?: number;
+  total_price?: number;
+  cancellation_reason?: string;
 }
 
-const TIME_OPTIONS = ["16h-17h", "17h-18h", "18h-19h", "19h-20h", "20h-21h", "21h-22h", "22h-23h", "23h-00h"];
+const PAYMENT_METHODS_MAP: Record<string, { label: string; icon: typeof Smartphone; className: string }> = {
+  bankily: { label: "Bankily", icon: Smartphone, className: "bg-yellow-500/10 text-yellow-400" },
+  masrvi: { label: "Masrvi", icon: CreditCard, className: "bg-purple-500/10 text-purple-400" },
+  especes: { label: "Espèces", icon: Banknote, className: "bg-green-500/10 text-green-400" },
+};
+
+const TIME_OPTIONS = [
+  "10h-11h", "11h-12h", "12h-13h", "13h-14h", "14h-15h", "15h-16h",
+  "16h-17h", "17h-18h", "18h-19h", "19h-20h", "20h-21h", "21h-22h",
+  "22h-23h", "23h-00h", "00h-01h", "01h-02h", "02h-03h"
+];
 
 export default function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -25,10 +41,19 @@ export default function ReservationsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [newRes, setNewRes] = useState({ name: "", phone: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
 
+  // Modals state
+  const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
+  const [payReceiver, setPayReceiver] = useState("");
+  const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
+  const [cancelReason, setCancelReason] = useState("");
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
+  const [deleteReason, setDeleteReason] = useState("");
+
   const fetchReservations = useCallback(async () => {
     const { data } = await supabase
       .from("reservations")
       .select("*")
+      .neq("status", "deleted")
       .order("date", { ascending: false })
       .order("time", { ascending: true });
     setReservations(data || []);
@@ -41,17 +66,31 @@ export default function ReservationsPage() {
     await supabase.from("reservations").update({ status: "confirmed" }).eq("id", id);
     fetchReservations();
   }
-  async function markPaid(id: number) {
-    await supabase.from("reservations").update({ status: "paid" }).eq("id", id);
-    fetchReservations();
+  async function submitPayment() {
+    if (payModal.id && payReceiver.trim()) {
+      await supabase.from("reservations").update({ status: "paid", payment_receiver: payReceiver }).eq("id", payModal.id);
+      setPayModal({ isOpen: false, id: null });
+      setPayReceiver("");
+      fetchReservations();
+    }
   }
-  async function cancelRes(id: number) {
-    await supabase.from("reservations").update({ status: "cancelled" }).eq("id", id);
-    fetchReservations();
+
+  async function submitCancel() {
+    if (cancelModal.id) {
+      await supabase.from("reservations").update({ status: "cancelled", cancellation_reason: cancelReason }).eq("id", cancelModal.id);
+      setCancelModal({ isOpen: false, id: null });
+      setCancelReason("");
+      fetchReservations();
+    }
   }
-  async function deleteRes(id: number) {
-    await supabase.from("reservations").delete().eq("id", id);
-    fetchReservations();
+
+  async function submitDelete() {
+    if (deleteModal.id) {
+      await supabase.from("reservations").update({ status: "deleted", cancellation_reason: deleteReason }).eq("id", deleteModal.id);
+      setDeleteModal({ isOpen: false, id: null });
+      setDeleteReason("");
+      fetchReservations();
+    }
   }
 
   async function addReservation() {
@@ -117,11 +156,11 @@ export default function ReservationsPage() {
             <input type="tel" placeholder="+222 XX XX XX XX" value={newRes.phone} onChange={(e) => setNewRes({ ...newRes, phone: e.target.value })} className={inputClass} />
             <input type="date" value={newRes.date} onChange={(e) => setNewRes({ ...newRes, date: e.target.value })} className={inputClass} />
             <select value={newRes.time} onChange={(e) => setNewRes({ ...newRes, time: e.target.value })} className={inputClass}>
-              {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+              {TIME_OPTIONS.map((t) => <option key={t} value={t} className="bg-fiver-black text-white">{t}</option>)}
             </select>
             <select value={newRes.pitch} onChange={(e) => setNewRes({ ...newRes, pitch: e.target.value })} className={inputClass}>
-              <option value="Terrain 1">Terrain 1</option>
-              <option value="Terrain 2">Terrain 2</option>
+              <option value="Terrain 1" className="bg-fiver-black text-white">Terrain 1</option>
+              <option value="Terrain 2" className="bg-fiver-black text-white">Terrain 2</option>
             </select>
           </div>
           <div className="mt-3 flex gap-2 sm:mt-4">
@@ -164,17 +203,47 @@ export default function ReservationsPage() {
                 <span>🕐 {r.time}</span>
                 <span>⚽ {r.pitch}</span>
               </div>
+              {/* Payment info */}
+              {(() => {
+                const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
+                const totalPrice = r.total_price || 0;
+                const amountPaid = r.amount_paid || 0;
+                const remaining = totalPrice - amountPaid;
+                return totalPrice > 0 || pm ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-sm bg-white/5 px-3 py-2">
+                    {pm ? (
+                      <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
+                        <pm.icon className="h-3 w-3" />{pm.label}
+                      </span>
+                    ) : <span className="text-xs text-white/30">—</span>}
+                    {totalPrice > 0 && (
+                      <>
+                        <span className="text-xs text-white/40">|</span>
+                        <span className="text-xs text-white/60">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>
+                        {remaining > 0 && r.status !== "cancelled" && (
+                          <span className="text-xs font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>
+                        )}
+                      </>
+                    )}
+                    {r.payment_method && r.payment_method !== "especes" && (
+                      r.payment_confirmed ? <span className="text-xs text-fiver-green">✓ Reçu</span> : <span className="text-xs text-red-400">✗ Non confirmé</span>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+              {r.status === "paid" && r.payment_receiver && <div className="mb-3 text-xs italic text-blue-400">Encaissé par : {r.payment_receiver}</div>}
+              {r.status === "cancelled" && r.cancellation_reason && <div className="mb-3 text-xs italic text-red-400">Raison : {r.cancellation_reason}</div>}
               <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
                 {r.status === "pending" && (
                   <button onClick={() => confirmRes(r.id)} className="flex items-center gap-1 rounded-sm bg-fiver-green/10 px-3 py-1.5 text-xs font-medium text-fiver-green"><Check className="h-3 w-3" /> Confirmer</button>
                 )}
                 {(r.status === "pending" || r.status === "confirmed") && (
-                  <button onClick={() => markPaid(r.id)} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Payé</button>
+                  <button onClick={() => setPayModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Encaisser</button>
                 )}
                 {r.status !== "cancelled" && r.status !== "paid" && (
-                  <button onClick={() => cancelRes(r.id)} className="flex items-center gap-1 rounded-sm bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400"><XIcon className="h-3 w-3" /> Annuler</button>
+                  <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400"><XIcon className="h-3 w-3" /> Annuler</button>
                 )}
-                <button onClick={() => deleteRes(r.id)} className="flex items-center gap-1 rounded-sm bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 ml-auto"><Trash2 className="h-3 w-3" /></button>
+                <button onClick={() => setDeleteModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 ml-auto"><Trash2 className="h-3 w-3" /></button>
               </div>
             </div>
           ))
@@ -191,13 +260,14 @@ export default function ReservationsPage() {
                 <th className="px-5 py-3">Date</th>
                 <th className="px-5 py-3">Créneau</th>
                 <th className="px-5 py-3">Terrain</th>
+                <th className="px-5 py-3">Paiement</th>
                 <th className="px-5 py-3">Statut</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-white/30">Aucune réservation trouvée.</td></tr>
+                <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-white/30">Aucune réservation trouvée.</td></tr>
               ) : (
                 filtered.map((r) => (
                   <tr key={r.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
@@ -208,19 +278,45 @@ export default function ReservationsPage() {
                     <td className="px-5 py-3.5 text-sm text-white/60">{new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</td>
                     <td className="px-5 py-3.5 text-sm text-white/60">{r.time}</td>
                     <td className="px-5 py-3.5 text-sm text-white/60">{r.pitch}</td>
-                    <td className="px-5 py-3.5">{statusBadge(r.status)}</td>
+                    <td className="px-5 py-3.5">
+                      {(() => {
+                        const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
+                        const totalPrice = r.total_price || 0;
+                        const amountPaid = r.amount_paid || 0;
+                        const remaining = totalPrice - amountPaid;
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            {pm ? (
+                              <span className={cn("inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
+                                <pm.icon className="h-3 w-3" />{pm.label}
+                              </span>
+                            ) : <span className="text-xs text-white/30">—</span>}
+                            {totalPrice > 0 && <span className="text-[10px] text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>}
+                            {remaining > 0 && r.status !== "cancelled" && <span className="text-[10px] font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>}
+                            {r.payment_method && r.payment_method !== "especes" && (
+                              r.payment_confirmed ? <span className="text-[10px] text-fiver-green">✓ Reçu</span> : <span className="text-[10px] text-red-400">✗ Non confirmé</span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {statusBadge(r.status)}
+                      {r.status === "paid" && r.payment_receiver && <div className="mt-1 text-[10px] text-blue-400/70">Par {r.payment_receiver}</div>}
+                      {r.status === "cancelled" && r.cancellation_reason && <div className="mt-1 text-[10px] text-red-400/70">Raison: {r.cancellation_reason}</div>}
+                    </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1">
                         {r.status === "pending" && (
                           <button onClick={() => confirmRes(r.id)} className="rounded-sm p-1.5 text-fiver-green/60 transition-colors hover:bg-fiver-green/10 hover:text-fiver-green" title="Confirmer"><Check className="h-4 w-4" /></button>
                         )}
                         {(r.status === "pending" || r.status === "confirmed") && (
-                          <button onClick={() => markPaid(r.id)} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Marquer payé">💰 Payé</button>
+                          <button onClick={() => setPayModal({ isOpen: true, id: r.id })} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Encaisser">💰 Encaisser</button>
                         )}
                         {r.status !== "cancelled" && r.status !== "paid" && (
-                          <button onClick={() => cancelRes(r.id)} className="rounded-sm p-1.5 text-amber-400/60 transition-colors hover:bg-amber-400/10 hover:text-amber-400" title="Annuler"><XIcon className="h-4 w-4" /></button>
+                          <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-amber-400/60 transition-colors hover:bg-amber-400/10 hover:text-amber-400" title="Annuler"><XIcon className="h-4 w-4" /></button>
                         )}
-                        <button onClick={() => deleteRes(r.id)} className="rounded-sm p-1.5 text-red-400/60 transition-colors hover:bg-red-400/10 hover:text-red-400" title="Supprimer"><Trash2 className="h-4 w-4" /></button>
+                        <button onClick={() => setDeleteModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-red-400/60 transition-colors hover:bg-red-400/10 hover:text-red-400" title="Supprimer"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </td>
                   </tr>
@@ -230,6 +326,75 @@ export default function ReservationsPage() {
           </table>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {payModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
+            <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-white uppercase tracking-wide">Encaissement</h3>
+            <p className="mb-5 text-sm text-white/50">Veuillez indiquer le nom de la personne qui encaisse ce paiement.</p>
+            <input
+              type="text"
+              placeholder="Ex: Amadou"
+              value={payReceiver}
+              onChange={(e) => setPayReceiver(e.target.value)}
+              className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setPayModal({ isOpen: false, id: null }); setPayReceiver(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitPayment} disabled={!payReceiver.trim()} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer</button>
+            </div>
+            <button onClick={() => { setPayModal({ isOpen: false, id: null }); setPayReceiver(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Modal */}
+      {cancelModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
+            <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-red-500 uppercase tracking-wide">Annuler la réservation</h3>
+            <p className="mb-5 text-sm text-white/50">Souhaitez-vous ajouter une raison pour cette annulation ? (Optionnel)</p>
+            <input
+              type="text"
+              placeholder="Ex: Le client n'est pas venu"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setCancelModal({ isOpen: false, id: null }); setCancelReason(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitCancel} className="rounded-sm bg-red-500 px-5 py-2 text-sm font-bold text-white hover:bg-red-600 transition-colors">Annuler la résa</button>
+            </div>
+            <button onClick={() => { setCancelModal({ isOpen: false, id: null }); setCancelReason(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-lg border border-red-500/30 bg-[#161616] p-6 shadow-2xl relative">
+            <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-red-500 uppercase tracking-wide">Supprimer la réservation</h3>
+            <p className="mb-5 text-sm text-white/50">Pour des raisons de sécurité, veuillez justifier cette suppression (erreur, doublon...).</p>
+            <input
+              type="text"
+              placeholder="Ex: Doublon créé par erreur"
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setDeleteModal({ isOpen: false, id: null }); setDeleteReason(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitDelete} disabled={!deleteReason.trim()} className="rounded-sm bg-red-500 px-5 py-2 text-sm font-bold text-white hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Supprimer</button>
+            </div>
+            <button onClick={() => { setDeleteModal({ isOpen: false, id: null }); setDeleteReason(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { MapPin, Phone, Mail, Clock, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const CONTACT_INFO = [
-  { icon: MapPin, title: "Adresse", lines: ["Complexe FIVER Soccer", "Nouakchott, Mauritanie"] },
+  { icon: MapPin, title: "Adresse", lines: ["Complexe FIVEUR ARENA", "Nouakchott, Mauritanie"] },
   { icon: Phone, title: "Téléphone", lines: ["+222 XX XX XX XX", "+222 YY YY YY YY"] },
   { icon: Mail, title: "Email", lines: ["contact@fiversoccer.com"] },
   { icon: Clock, title: "Horaires", lines: ["Lun - Ven: 16h - 00h", "Sam - Dim: 10h - 00h"] },
@@ -51,32 +51,52 @@ export default function ContactPage() {
     setSending(true);
     setError("");
 
-    const contactData: Record<string, string | null> = {
-      name,
-      email: email || null,
-      phone,
-      subject,
-      message: message || null,
-    };
+    if (subject === "inscription_academy") {
+      const { error: dbError } = await supabase.from("academy_players").insert({
+        full_name: playerName,
+        category: playerCategory || "U9",
+        parent_name: name,
+        parent_phone: phone,
+        parent_email: email || null,
+        status: "active",
+        notes: `Age: ${playerAge}\nPoste: ${playerPosition}\nExpérience: ${playerExperience}\nMessage: ${message}`,
+      });
+      if (dbError) {
+        setError("Erreur lors de l'envoi. Veuillez réessayer.");
+        setSending(false);
+        return;
+      }
+    } else if (subject === "inscription_loisirs") {
+      const { error: dbError } = await supabase.from("loisirs_children").insert({
+        full_name: playerName,
+        age: playerAge ? parseInt(playerAge) : null,
+        category: playerCategory || "U9",
+        parent_name: name,
+        parent_phone: phone,
+        parent_email: email || null,
+        status: "active",
+        notes: message || null,
+      });
+      if (dbError) {
+        setError("Erreur lors de l'envoi. Veuillez réessayer.");
+        setSending(false);
+        return;
+      }
+    } else {
+      const contactData: Record<string, string | null> = {
+        name,
+        email: email || null,
+        phone,
+        subject,
+        message: message || null,
+      };
 
-    // If it's an inscription, add extra fields to message
-    if (isInscription) {
-      const extraInfo = [
-        playerName && `Joueur: ${playerName}`,
-        playerAge && `Âge: ${playerAge}`,
-        playerCategory && `Catégorie: ${playerCategory}`,
-        playerPosition && `Poste: ${playerPosition}`,
-        playerExperience && `Expérience: ${playerExperience}`,
-        message && `Message: ${message}`,
-      ].filter(Boolean).join("\n");
-      contactData.message = extraInfo;
-    }
-
-    const { error: dbError } = await supabase.from("contacts").insert(contactData);
-    if (dbError) {
-      setError("Erreur lors de l'envoi. Veuillez réessayer.");
-      setSending(false);
-      return;
+      const { error: dbError } = await supabase.from("contacts").insert(contactData);
+      if (dbError) {
+        setError("Erreur lors de l'envoi. Veuillez réessayer.");
+        setSending(false);
+        return;
+      }
     }
 
     setSent(true);
@@ -196,10 +216,12 @@ export default function ContactPage() {
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Catégorie souhaitée</label>
                       <select value={playerCategory} onChange={(e) => setPlayerCategory(e.target.value)} className={inputClass}>
                         <option value="">Sélectionner</option>
+                        <option value="U7">U7 (5-6 ans)</option>
+                        <option value="U9">U9 (7-8 ans)</option>
+                        <option value="U11">U11 (9-10 ans)</option>
                         <option value="U13">U13 (11-12 ans)</option>
                         <option value="U15">U15 (13-14 ans)</option>
                         <option value="U17">U17 (15-16 ans)</option>
-                        <option value="Seniors">Seniors (17+)</option>
                       </select>
                     </div>
                     <div>
@@ -244,8 +266,9 @@ export default function ContactPage() {
                     <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Catégorie souhaitée</label>
                     <select value={playerCategory} onChange={(e) => setPlayerCategory(e.target.value)} className={inputClass}>
                       <option value="">Sélectionner</option>
-                      <option value="U9">U9 (6-8 ans)</option>
-                      <option value="U12">U12 (9-11 ans)</option>
+                      <option value="U7">U7 (5-6 ans)</option>
+                      <option value="U9">U9 (7-8 ans)</option>
+                      <option value="U11">U11 (9-10 ans)</option>
                       <option value="U13">U13 (11-12 ans)</option>
                       <option value="U15">U15 (13-15 ans)</option>
                     </select>

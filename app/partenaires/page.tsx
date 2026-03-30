@@ -4,9 +4,9 @@ import { Handshake, Building2, Megaphone, Trophy } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Partenaires | FIVER Soccer",
+  title: "Partenaires | FIVEUR ARENA",
   description:
-    "Decouvrez les partenaires de FIVER Soccer et rejoignez-nous en tant que sponsor du premier complexe Five-a-Side a Nouakchott.",
+    "Decouvrez les partenaires de FIVEUR ARENA et rejoignez-nous en tant que sponsor du premier complexe Five-a-Side a Nouakchott.",
 };
 
 const PARTNERS = [
@@ -56,7 +56,7 @@ export default function PartenairesPage() {
             NOS PARTENAIRES
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-primary-foreground/70">
-            Ils nous font confiance et contribuent a faire de FIVER Soccer
+            Ils nous font confiance et contribuent a faire de FIVEUR ARENA
             un lieu d'excellence sportive et sociale.
           </p>
         </div>
@@ -133,7 +133,7 @@ export default function PartenairesPage() {
             Rejoignez l'aventure
           </h2>
           <p className="mx-auto mt-4 max-w-md text-base leading-relaxed text-fiver-black/70">
-            Devenez partenaire de FIVER Soccer et associez votre marque
+            Devenez partenaire de FIVEUR ARENA et associez votre marque
             a un projet qui compte.
           </p>
           <a

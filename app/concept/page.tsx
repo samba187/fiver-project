@@ -6,9 +6,9 @@ import { Target, Zap, Heart, Globe } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Concept | FIVER Soccer",
+  title: "Concept | FIVEUR ARENA",
   description:
-    "Decouvrez le concept FIVER Soccer - le premier complexe Five-a-Side a Nouakchott avec deux terrains professionnels.",
+    "Decouvrez le concept FIVEUR ARENA - le premier complexe Five-a-Side a Nouakchott avec deux terrains professionnels.",
 };
 
 const VALUES = [
@@ -47,7 +47,7 @@ export default function ConceptPage() {
       <section className="relative flex min-h-[60vh] items-center justify-center bg-fiver-black pt-20">
         <Image
           src="/images/concept-pitch.jpg"
-          alt="Vue aerienne du complexe FIVER Soccer"
+          alt="Vue aerienne du complexe FIVEUR ARENA"
           fill
           className="object-cover opacity-30"
           priority
@@ -79,7 +79,7 @@ export default function ConceptPage() {
                 Ne d'une passion
               </h2>
               <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-                FIVER Soccer est ne de la volonte de creer un lieu unique a
+                FIVEUR ARENA est ne de la volonte de creer un lieu unique a
                 Nouakchott, ou amateurs et passionnes peuvent pratiquer le
                 football dans des conditions professionnelles. Notre complexe
                 offre deux terrains de derniere generation, un eclairage
@@ -94,7 +94,7 @@ export default function ConceptPage() {
             <div className="relative aspect-video w-full max-w-lg overflow-hidden rounded-sm lg:flex-1">
               <Image
                 src="/images/concept-pitch.jpg"
-                alt="Terrain de football FIVER Soccer"
+                alt="Terrain de football FIVEUR ARENA"
                 fill
                 className="object-cover"
                 sizes="(max-width: 1024px) 100vw, 50vw"
@@ -152,7 +152,7 @@ export default function ConceptPage() {
               <div className="relative aspect-video">
                 <Image
                   src="/images/hero-soccer.jpg"
-                  alt="Terrain 1 de FIVER Soccer"
+                  alt="Terrain 1 de FIVEUR ARENA"
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -172,7 +172,7 @@ export default function ConceptPage() {
               <div className="relative aspect-video">
                 <Image
                   src="/images/concept-pitch.jpg"
-                  alt="Terrain 2 de FIVER Soccer"
+                  alt="Terrain 2 de FIVEUR ARENA"
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -183,8 +183,8 @@ export default function ConceptPage() {
                   Terrain 2
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  Dimensions identiques, surface premium. Parfait pour
-                  les entrainements et les sessions academie.
+                  Gazon synthétique 40mm et éclairage LED strictement identiques.
+                  Les deux terrains offrent exactement la même qualité d'exception.
                 </p>
               </div>
             </div>

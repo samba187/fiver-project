@@ -17,8 +17,8 @@ export function Hero() {
           Nouakchott &middot; Mauritanie
         </p>
         <h1 className="font-[var(--font-heading)] text-5xl font-bold uppercase leading-tight tracking-tight text-primary-foreground md:text-7xl lg:text-8xl">
-          FIVER
-          <span className="block text-fiver-green">SOCCER</span>
+          FIVEUR
+          <span className="block text-fiver-green">ARENA</span>
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-primary-foreground/70 md:text-lg">
           Le premier complexe de football Five-a-Side a Nouakchott.
