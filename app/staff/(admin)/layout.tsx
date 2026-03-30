@@ -70,7 +70,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const displayName = userEmail.split("@")[0] || "Admin";
 
   return (
-    <div className="flex min-h-[100dvh] bg-[#0d0d0d]">
+    <div className="flex min-h-[100dvh] w-full overflow-x-hidden bg-[#0d0d0d]">
       {/* Sidebar — Desktop */}
       <aside className="hidden w-64 flex-col border-r border-white/5 bg-fiver-black lg:flex">
         <div className="flex h-16 items-center gap-3 border-b border-white/5 px-6">
@@ -120,7 +120,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </aside>
 
       {/* Mobile Header */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex flex-1 flex-col min-w-0">
         <header className="flex h-14 items-center justify-between border-b border-white/5 bg-fiver-black px-4 lg:hidden">
           <Image src="/logo.png" alt="FIVER" width={80} height={28} className="h-6 w-auto" />
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white/70" aria-label="Menu">
@@ -175,7 +175,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );
