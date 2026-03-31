@@ -37,13 +37,14 @@ export default function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("pending");
   const [showAdd, setShowAdd] = useState(false);
   const [newRes, setNewRes] = useState({ name: "", phone: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
 
   // Modals state
-  const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
+  const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null; totalPrice: number; amountPaid: number }>({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
   const [payReceiver, setPayReceiver] = useState("");
+  const [payAmount, setPayAmount] = useState("");
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
   const [cancelReason, setCancelReason] = useState("");
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
@@ -54,23 +55,22 @@ export default function ReservationsPage() {
       .from("reservations")
       .select("*")
       .neq("status", "deleted")
-      .order("date", { ascending: false })
-      .order("time", { ascending: true });
+      .order("created_at", { ascending: false });
     setReservations(data || []);
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
-  async function confirmRes(id: number) {
-    await supabase.from("reservations").update({ status: "confirmed" }).eq("id", id);
-    fetchReservations();
-  }
   async function submitPayment() {
-    if (payModal.id && payReceiver.trim()) {
-      await supabase.from("reservations").update({ status: "paid", payment_receiver: payReceiver }).eq("id", payModal.id);
-      setPayModal({ isOpen: false, id: null });
+    if (payModal.id && payReceiver.trim() && payAmount) {
+      const addedAmount = parseInt(payAmount) || 0;
+      const newTotal = payModal.amountPaid + addedAmount;
+      const newStatus = newTotal >= payModal.totalPrice && payModal.totalPrice > 0 ? "paid" : "acompte";
+      await supabase.from("reservations").update({ status: newStatus, payment_receiver: payReceiver, amount_paid: newTotal }).eq("id", payModal.id);
+      setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
       setPayReceiver("");
+      setPayAmount("");
       fetchReservations();
     }
   }
@@ -97,7 +97,7 @@ export default function ReservationsPage() {
     if (!newRes.name || !newRes.phone || !newRes.date) return;
     await supabase.from("reservations").insert({
       name: newRes.name, phone: newRes.phone, date: newRes.date,
-      time: newRes.time, pitch: newRes.pitch, status: "confirmed",
+      time: newRes.time, pitch: newRes.pitch, status: "pending",
     });
     const { data: existing } = await supabase.from("clients").select("id, total_bookings").eq("phone", newRes.phone).single();
     if (existing) {
@@ -118,12 +118,16 @@ export default function ReservationsPage() {
     });
   }, [reservations, search, filterStatus]);
 
-  const statusBadge = (status: string) => {
+  const statusBadge = (status: string, r?: Reservation) => {
+    const totalPrice = r?.total_price || 0;
+    const amountPaid = r?.amount_paid || 0;
+    const remaining = totalPrice - amountPaid;
     switch (status) {
-      case "confirmed": return <span className="rounded-full bg-fiver-green/10 px-2 py-0.5 text-xs font-medium text-fiver-green">Confirmée</span>;
+      case "acompte": return <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-400">💳 Acompte{remaining > 0 ? ` (reste ${remaining.toLocaleString()})` : ""}</span>;
+      case "confirmed": return <span className="rounded-full bg-fiver-green/10 px-2 py-0.5 text-xs font-medium text-fiver-green">✅ Validée</span>;
       case "paid": return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">💰 Payée</span>;
-      case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">En attente</span>;
-      case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">Annulée</span>;
+      case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
+      case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">❌ Annulée</span>;
       default: return null;
     }
   };
@@ -178,7 +182,7 @@ export default function ReservationsPage() {
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap items-center gap-1 rounded-sm border border-white/10 bg-white/5 p-1">
-          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "Attente" }, { key: "confirmed", label: "Confirm." }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
+          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "acompte", label: "Acompte" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
             <button key={f.key} onClick={() => setFilterStatus(f.key)} className={cn("rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors", filterStatus === f.key ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}>{f.label}</button>
           ))}
         </div>
@@ -196,7 +200,7 @@ export default function ReservationsPage() {
                   <p className="text-sm font-medium text-white/80">{r.name}</p>
                   <p className="text-xs text-white/30">{r.phone}</p>
                 </div>
-                {statusBadge(r.status)}
+                {statusBadge(r.status, r)}
               </div>
               <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
                 <span>📅 {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
@@ -225,20 +229,15 @@ export default function ReservationsPage() {
                         )}
                       </>
                     )}
-                    {r.payment_method && r.payment_method !== "especes" && (
-                      r.payment_confirmed ? <span className="text-xs text-fiver-green">✓ Reçu</span> : <span className="text-xs text-red-400">✗ Non confirmé</span>
-                    )}
+
                   </div>
                 ) : null;
               })()}
               {r.status === "paid" && r.payment_receiver && <div className="mb-3 text-xs italic text-blue-400">Encaissé par : {r.payment_receiver}</div>}
               {r.status === "cancelled" && r.cancellation_reason && <div className="mb-3 text-xs italic text-red-400">Raison : {r.cancellation_reason}</div>}
               <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
-                {r.status === "pending" && (
-                  <button onClick={() => confirmRes(r.id)} className="flex items-center gap-1 rounded-sm bg-fiver-green/10 px-3 py-1.5 text-xs font-medium text-fiver-green"><Check className="h-3 w-3" /> Confirmer</button>
-                )}
-                {(r.status === "pending" || r.status === "confirmed") && (
-                  <button onClick={() => setPayModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Encaisser</button>
+                {(r.status === "pending" || r.status === "confirmed" || r.status === "acompte") && (
+                  <button onClick={() => setPayModal({ isOpen: true, id: r.id, totalPrice: r.total_price || 0, amountPaid: r.amount_paid || 0 })} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Encaisser</button>
                 )}
                 {r.status !== "cancelled" && r.status !== "paid" && (
                   <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400"><XIcon className="h-3 w-3" /> Annuler</button>
@@ -293,25 +292,20 @@ export default function ReservationsPage() {
                             ) : <span className="text-xs text-white/30">—</span>}
                             {totalPrice > 0 && <span className="text-[10px] text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>}
                             {remaining > 0 && r.status !== "cancelled" && <span className="text-[10px] font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>}
-                            {r.payment_method && r.payment_method !== "especes" && (
-                              r.payment_confirmed ? <span className="text-[10px] text-fiver-green">✓ Reçu</span> : <span className="text-[10px] text-red-400">✗ Non confirmé</span>
-                            )}
+
                           </div>
                         );
                       })()}
                     </td>
                     <td className="px-5 py-3.5">
-                      {statusBadge(r.status)}
-                      {r.status === "paid" && r.payment_receiver && <div className="mt-1 text-[10px] text-blue-400/70">Par {r.payment_receiver}</div>}
+                      {statusBadge(r.status, r)}
+                      {r.status === "paid" && r.payment_receiver && <div className="mt-1 text-[10px] text-blue-400/70">Encaissé par {r.payment_receiver}</div>}
                       {r.status === "cancelled" && r.cancellation_reason && <div className="mt-1 text-[10px] text-red-400/70">Raison: {r.cancellation_reason}</div>}
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1">
-                        {r.status === "pending" && (
-                          <button onClick={() => confirmRes(r.id)} className="rounded-sm p-1.5 text-fiver-green/60 transition-colors hover:bg-fiver-green/10 hover:text-fiver-green" title="Confirmer"><Check className="h-4 w-4" /></button>
-                        )}
-                        {(r.status === "pending" || r.status === "confirmed") && (
-                          <button onClick={() => setPayModal({ isOpen: true, id: r.id })} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Encaisser">💰 Encaisser</button>
+                        {(r.status === "pending" || r.status === "confirmed" || r.status === "acompte") && (
+                          <button onClick={() => setPayModal({ isOpen: true, id: r.id, totalPrice: r.total_price || 0, amountPaid: r.amount_paid || 0 })} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Encaisser">💰 Encaisser</button>
                         )}
                         {r.status !== "cancelled" && r.status !== "paid" && (
                           <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-amber-400/60 transition-colors hover:bg-amber-400/10 hover:text-amber-400" title="Annuler"><XIcon className="h-4 w-4" /></button>
@@ -332,20 +326,33 @@ export default function ReservationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
             <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-white uppercase tracking-wide">Encaissement</h3>
-            <p className="mb-5 text-sm text-white/50">Veuillez indiquer le nom de la personne qui encaisse ce paiement.</p>
+            <p className="mb-3 text-sm text-white/50">Saisissez le montant encaissé et le nom de la personne qui encaisse.</p>
+            {payModal.totalPrice > 0 && (
+              <div className="mb-4 rounded-sm bg-white/5 px-3 py-2 text-xs text-white/50">
+                Déjà payé : <span className="font-medium text-fiver-green">{payModal.amountPaid.toLocaleString()} MRU</span> / {payModal.totalPrice.toLocaleString()} MRU — 
+                Reste : <span className="font-medium text-amber-400">{(payModal.totalPrice - payModal.amountPaid).toLocaleString()} MRU</span>
+              </div>
+            )}
+            <input
+              type="number"
+              placeholder="Montant encaissé (ex: 500)"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              className="mb-3 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
+              autoFocus
+            />
             <input
               type="text"
-              placeholder="Ex: Amadou"
+              placeholder="Nom de l'encaisseur (ex: Amadou)"
               value={payReceiver}
               onChange={(e) => setPayReceiver(e.target.value)}
               className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
-              autoFocus
             />
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setPayModal({ isOpen: false, id: null }); setPayReceiver(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
-              <button onClick={submitPayment} disabled={!payReceiver.trim()} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer</button>
+              <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitPayment} disabled={!payReceiver.trim() || !payAmount} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer</button>
             </div>
-            <button onClick={() => { setPayModal({ isOpen: false, id: null }); setPayReceiver(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+            <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
           </div>
         </div>
       )}

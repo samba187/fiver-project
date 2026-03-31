@@ -177,17 +177,17 @@ export default function ContactPage() {
               <div className="grid gap-5 sm:grid-cols-2">
                 <div>
                   <label htmlFor="contact-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom complet *</label>
-                  <input id="contact-name" type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className={inputClass} />
+                  <input id="contact-name" type="text" required value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder="Votre nom complet" className={inputClass} />
                 </div>
                 <div>
                   <label htmlFor="contact-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Téléphone *</label>
-                  <input id="contact-phone" type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+222 XX XX XX XX" className={inputClass} />
+                  <input id="contact-phone" type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="+222 XX XX XX XX" className={inputClass} />
                 </div>
               </div>
 
               <div>
                 <label htmlFor="contact-email" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Email (optionnel)</label>
-                <input id="contact-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="votre@email.com" className={inputClass} />
+                <input id="contact-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={100} placeholder="votre@email.com" className={inputClass} />
               </div>
 
               <div>
@@ -204,7 +204,7 @@ export default function ContactPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom du joueur *</label>
-                      <input type="text" required value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder="Prénom et nom" className={inputClass} />
+                      <input type="text" required value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={50} placeholder="Prénom et nom" className={inputClass} />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Âge *</label>
@@ -255,7 +255,7 @@ export default function ContactPage() {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom de l&apos;enfant *</label>
-                      <input type="text" required value={playerName} onChange={(e) => setPlayerName(e.target.value)} placeholder="Prénom et nom" className={inputClass} />
+                      <input type="text" required value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={50} placeholder="Prénom et nom" className={inputClass} />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Âge *</label>

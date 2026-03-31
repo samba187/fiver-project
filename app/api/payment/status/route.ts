@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isRateLimited } from "@/lib/rate-limit";
+
 const KALBE_API_KEY = process.env.KALBE_API_KEY || "";
 
 export async function GET(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for") || "unknown";
+  if (isRateLimited(ip, 20, 60000)) {
+    return NextResponse.json(
+      { success: false, errorMessage: "Trop de requêtes, veuillez patienter." },
+      { status: 429 }
+    );
+  }
   try {
     const { searchParams } = new URL(req.url);
     const reference = searchParams.get("reference");

@@ -64,7 +64,7 @@ export default function LoisirsManagementPage() {
   const [viewChild, setViewChild] = useState<Child | null>(null);
 
   const fetchChildren = useCallback(async () => {
-    const { data } = await supabase.from("loisirs_children").select("*").order("full_name");
+    const { data } = await supabase.from("loisirs_children").select("*").order("created_at", { ascending: false });
     setChildren(data || []);
     setLoading(false);
   }, []);

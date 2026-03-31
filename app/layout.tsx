@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
+    <html lang="fr" suppressHydrationWarning>
       <body
         className={`${_inter.variable} ${_oswald.variable} font-sans antialiased overflow-x-hidden`}
       >

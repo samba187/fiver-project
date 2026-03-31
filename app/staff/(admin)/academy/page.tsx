@@ -62,7 +62,7 @@ export default function AcademyManagementPage() {
   const [viewPlayer, setViewPlayer] = useState<Player | null>(null);
 
   const fetchPlayers = useCallback(async () => {
-    const { data } = await supabase.from("academy_players").select("*").order("full_name");
+    const { data } = await supabase.from("academy_players").select("*").order("created_at", { ascending: false });
     setPlayers(data || []);
     setLoading(false);
   }, []);

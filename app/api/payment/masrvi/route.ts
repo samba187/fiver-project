@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { isRateLimited } from "@/lib/rate-limit";
+
 const KALBE_API_URL = "https://sandbox.kalbe.io/api/payment/init";
 const KALBE_API_KEY = process.env.KALBE_API_KEY || "";
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for") || "unknown";
+  if (isRateLimited(ip, 5, 60000)) {
+    return NextResponse.json(
+      { success: false, errorMessage: "Trop de requêtes, veuillez patienter." },
+      { status: 429 }
+    );
+  }
   try {
     const body = await req.json();
     const { reference, amount, phone } = body;

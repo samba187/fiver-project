@@ -30,6 +30,8 @@ export default function StaffPage() {
       return;
     }
 
+    document.cookie = "fiver_session=true; path=/; max-age=86400; SameSite=Lax; Secure";
+
     // Route based on role: emails containing "admin" go to admin dashboard, others to gestion
     const userEmail = authData.user?.email?.toLowerCase() || "";
     if (userEmail.includes("admin")) {

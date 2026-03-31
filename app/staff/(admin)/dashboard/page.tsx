@@ -29,7 +29,7 @@ export default function DashboardPage() {
         if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
         if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
         
-        const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+        const isWeekend = [0, 5, 6].includes(new Date().getDay());
         const oH = parseInt((isWeekend ? map.weekend_open : map.weekday_open)?.split(":")[0] || "16");
         const cH = parseInt((isWeekend ? map.weekend_close : map.weekday_close)?.split(":")[0] || "0");
         const cHEff = cH === 0 ? 24 : cH;
@@ -58,7 +58,7 @@ export default function DashboardPage() {
   const activeToday = todayReservations.filter((r) => r.status === "confirmed" || r.status === "paid").length;
   
   const occupancyRate = totalSlotsDay > 0 ? Math.round((activeToday / totalSlotsDay) * 100) : 0;
-  const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
+  const isWeekend = [0, 5, 6].includes(new Date().getDay());
   const currentPrice = isWeekend ? priceWeekend : priceWeekday;
   const revenue = paidToday * currentPrice;
 

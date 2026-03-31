@@ -75,7 +75,7 @@ export function InscriptionForm() {
         <label htmlFor="child-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-fiver-black/60">
           Nom de l&apos;enfant
         </label>
-        <input id="child-name" type="text" required value={childName} onChange={(e) => setChildName(e.target.value)} placeholder="Prénom et nom"
+        <input id="child-name" type="text" required value={childName} onChange={(e) => setChildName(e.target.value)} maxLength={50} placeholder="Prénom et nom"
           className="w-full rounded-sm border border-fiver-black/20 bg-card px-4 py-2.5 text-sm text-fiver-black placeholder:text-fiver-black/30 focus:border-fiver-black focus:outline-none focus:ring-1 focus:ring-fiver-black" />
       </div>
 
@@ -104,7 +104,7 @@ export function InscriptionForm() {
         <label htmlFor="parent-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-fiver-black/60">
           Nom du parent
         </label>
-        <input id="parent-name" type="text" required value={parentName} onChange={(e) => setParentName(e.target.value)} placeholder="Votre nom"
+        <input id="parent-name" type="text" required value={parentName} onChange={(e) => setParentName(e.target.value)} maxLength={50} placeholder="Votre nom"
           className="w-full rounded-sm border border-fiver-black/20 bg-card px-4 py-2.5 text-sm text-fiver-black placeholder:text-fiver-black/30 focus:border-fiver-black focus:outline-none focus:ring-1 focus:ring-fiver-black" />
       </div>
 
@@ -112,7 +112,7 @@ export function InscriptionForm() {
         <label htmlFor="parent-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-fiver-black/60">
           Téléphone du parent
         </label>
-        <input id="parent-phone" type="tel" required value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="+222 XX XX XX XX"
+        <input id="parent-phone" type="tel" required value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="Ex: 48 81 38 22"
           className="w-full rounded-sm border border-fiver-black/20 bg-card px-4 py-2.5 text-sm text-fiver-black placeholder:text-fiver-black/30 focus:border-fiver-black focus:outline-none focus:ring-1 focus:ring-fiver-black" />
       </div>
 
@@ -120,7 +120,7 @@ export function InscriptionForm() {
         <label htmlFor="parent-email" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-fiver-black/60">
           Email du parent
         </label>
-        <input id="parent-email" type="email" value={parentEmail} onChange={(e) => setParentEmail(e.target.value)} placeholder="votre@email.com"
+        <input id="parent-email" type="email" value={parentEmail} onChange={(e) => setParentEmail(e.target.value)} maxLength={100} placeholder="votre@email.com"
           className="w-full rounded-sm border border-fiver-black/20 bg-card px-4 py-2.5 text-sm text-fiver-black placeholder:text-fiver-black/30 focus:border-fiver-black focus:outline-none focus:ring-1 focus:ring-fiver-black" />
       </div>
 

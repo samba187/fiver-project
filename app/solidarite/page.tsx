@@ -2,7 +2,7 @@ import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import Image from "next/image";
 import Link from "next/link";
-import { Heart, HandHeart, Users, Lightbulb } from "lucide-react";
+import { Heart } from "lucide-react";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -32,13 +32,6 @@ const ACTIONS = [
   },
 ];
 
-const STATS = [
-  { icon: Heart, value: "200+", label: "Enfants soutenus" },
-  { icon: HandHeart, value: "50+", label: "Equipements donnes" },
-  { icon: Users, value: "12", label: "Quartiers impliques" },
-  { icon: Lightbulb, value: "3", label: "Programmes actifs" },
-];
-
 export default function SolidaritePage() {
   return (
     <main>
@@ -65,21 +58,6 @@ export default function SolidaritePage() {
             Le football comme vecteur de changement social et humain.
             Chaque match est une chance de faire la difference.
           </p>
-        </div>
-      </section>
-
-      {/* Stats */}
-      <section className="bg-fiver-green py-12">
-        <div className="mx-auto max-w-7xl px-4 lg:px-8">
-          <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
-            {STATS.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <stat.icon className="mx-auto mb-2 h-6 w-6 text-fiver-black/60" />
-                <p className="font-[var(--font-heading)] text-3xl font-bold text-fiver-black">{stat.value}</p>
-                <p className="mt-1 text-sm text-fiver-black/60">{stat.label}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 

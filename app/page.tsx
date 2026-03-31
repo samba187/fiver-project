@@ -36,7 +36,7 @@ export default function Home() {
       <Hero />
 
       {/* Booking Section */}
-      <section id="booking" className="bg-background py-20">
+      <section id="booking" className="bg-neutral-300 dark:bg-neutral-900 py-20">
         <div className="mx-auto max-w-3xl px-4 lg:px-8">
           <div className="mb-2 text-center">
             <span className="font-[var(--font-heading)] text-xs font-medium uppercase tracking-[0.3em] text-fiver-green">
@@ -46,7 +46,7 @@ export default function Home() {
           <h2 className="mb-10 text-center font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-foreground md:text-4xl">
             Reservez votre terrain
           </h2>
-          <div className="rounded-lg border border-border bg-card p-6 shadow-sm md:p-10">
+          <div className="rounded-lg border border-border bg-neutral-200 dark:bg-neutral-800 p-6 shadow-sm md:p-10">
             <BookingFlow />
           </div>
         </div>

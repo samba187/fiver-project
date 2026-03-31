@@ -58,7 +58,7 @@ export default function ConceptPage() {
             Notre Vision
           </span>
           <h1 className="mt-4 font-[var(--font-heading)] text-4xl font-bold uppercase leading-tight tracking-tight text-primary-foreground md:text-6xl">
-            LE CONCEPT FIVER
+            LE CONCEPT FIVEUR ARENA
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-primary-foreground/70">
             Creer un espace sportif d'excellence a Nouakchott, ou le football

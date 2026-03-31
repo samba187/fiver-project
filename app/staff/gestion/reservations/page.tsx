@@ -103,7 +103,7 @@ export default function GestionReservationsPage() {
 
   function getPrice(date: string) {
     const d = new Date(date);
-    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    const isWeekend = [0, 5, 6].includes(d.getDay());
     return isWeekend ? priceWeekend : priceWeekday;
   }
 

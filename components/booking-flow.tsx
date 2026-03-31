@@ -79,7 +79,7 @@ export function BookingFlow() {
 
   const currentPrice = useMemo(() => {
     if (!selectedDate) return priceWeekday;
-    const isWeekend = selectedDate.getDay() === 0 || selectedDate.getDay() === 6;
+    const isWeekend = [0, 5, 6].includes(selectedDate.getDay());
     return isWeekend ? priceWeekend : priceWeekday;
   }, [selectedDate, priceWeekday, priceWeekend]);
 
@@ -88,7 +88,7 @@ export function BookingFlow() {
       const { data } = await supabase.from("settings").select("key, value");
       if (data) {
         const map = Object.fromEntries(data.map((s) => [s.key, s.value]));
-        const isWeekend = selectedDate && (selectedDate.getDay() === 0 || selectedDate.getDay() === 6);
+        const isWeekend = selectedDate && [0, 5, 6].includes(selectedDate.getDay());
         setOpenHour(parseHour(isWeekend ? (map.weekend_open || "10:00") : (map.weekday_open || "16:00")));
         setCloseHour(parseHour(isWeekend ? (map.weekend_close || "00:00") : (map.weekday_close || "00:00")));
         if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
@@ -151,7 +151,22 @@ export function BookingFlow() {
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
 
   async function handleConfirm() {
-    if (!selectedDate || !selectedSlot || !selectedPitch || !name || !phone || !paymentMethod) return;
+    if (!selectedDate || !selectedSlot || !selectedPitch || !paymentMethod) return;
+    
+    // Strict input validation
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2 || trimmedName.length > 50) {
+      setError("Le nom doit contenir entre 2 et 50 caractères.");
+      return;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, "");
+    const phoneRegex = /^[234][0-9]{7}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      setError("Le numéro de téléphone doit contenir exactement 8 chiffres valides (ex: 48813822).");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     const y = selectedDate.getFullYear();
@@ -211,11 +226,19 @@ export function BookingFlow() {
         <p className="mt-3 text-muted-foreground">
           {name}, votre terrain est réservé pour le {selectedDate?.toLocaleDateString("fr-FR")} de {selectedSlot} sur {selectedPitch}.
         </p>
-        <div className="mt-4 rounded-sm bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+        <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left">
           {paymentMethod === "especes" ? (
-            <>💰 Paiement de {currentPrice.toLocaleString()} MRU à régler sur place à l&apos;accueil.</>
+            <p className="text-sm text-muted-foreground">💰 Paiement de {currentPrice.toLocaleString()} MRU à régler sur place à l&apos;accueil.</p>
           ) : (
-            <>⚠️ <strong>Attention :</strong> pour valider définitivement votre réservation, vous devez nous envoyer <strong>{currentPrice.toLocaleString()} MRU</strong> via <strong>{paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</strong>. Sans réception du paiement, votre réservation pourra être annulée.</>
+            <>
+              <p className="mb-2 text-sm font-bold text-foreground">⚠️ Envoyez votre acompte pour valider :</p>
+              <div className="mb-2 rounded-sm bg-fiver-green/20 px-4 py-3 text-center">
+                <p className="text-sm font-semibold text-fiver-green">500 MRU minimum</p>
+                <p className="mt-1 text-2xl font-black tracking-wider text-foreground">48 81 38 22</p>
+                <p className="mt-1 text-xs font-semibold text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">💡 En remarque du transfert, indiquez votre <strong className="text-foreground">prénom</strong> et la <strong className="text-foreground">date</strong>.</p>
+            </>
           )}
         </div>
         <button onClick={handleReset} className="mt-6 rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
@@ -356,11 +379,11 @@ export function BookingFlow() {
             </div>
             <div>
               <label htmlFor="booking-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom complet</label>
-              <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Votre nom" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+              <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required placeholder="Votre nom complet" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
             </div>
             <div>
               <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Téléphone</label>
-              <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+222 XX XX XX XX" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+              <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required placeholder="Ex: 48 81 38 22" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
             </div>
             <div>
               <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
@@ -378,8 +401,14 @@ export function BookingFlow() {
               </div>
             </div>
             {paymentMethod && paymentMethod !== "especes" && (
-              <div className="rounded-sm border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-400">
-                ⚠️ <strong>Attention :</strong> pour valider définitivement votre réservation, vous devez nous envoyer <strong>{currentPrice.toLocaleString()} MRU</strong> via <strong>{paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</strong>. Sans réception du paiement, votre réservation pourra être annulée.
+              <div className="rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4">
+                <p className="mb-2 text-sm font-bold text-foreground">⚠️ Envoyez votre acompte pour valider :</p>
+                <div className="mb-2 rounded-sm bg-fiver-green/20 px-4 py-3 text-center">
+                  <p className="text-sm font-semibold text-fiver-green">500 MRU minimum</p>
+                  <p className="mt-1 text-2xl font-black tracking-wider text-foreground">48 81 38 22</p>
+                  <p className="mt-1 text-xs font-semibold text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
+                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">💡 En remarque du transfert, indiquez votre <strong className="text-foreground">prénom</strong> et la <strong className="text-foreground">date</strong> de réservation. Sans réception, votre réservation pourra être annulée.</p>
               </div>
             )}
             {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}

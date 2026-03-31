@@ -60,7 +60,7 @@ export default function RapportsPage() {
         groups[monthKey].cancelled++;
       } else if (r.status === "paid") {
         groups[monthKey].actives++;
-        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+        const isWeekend = [0, 5, 6].includes(d.getDay());
         groups[monthKey].revenue += isWeekend ? priceWeekend : priceWeekday;
       } else if (r.status === "confirmed") {
         groups[monthKey].actives++; 
