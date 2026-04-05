@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { CalendarCheck, DollarSign, TrendingUp, Clock, ChevronRight } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { CalendarCheck, DollarSign, TrendingUp, Clock, ChevronRight, RefreshCw, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useRouter } from "next/navigation";
 
 interface Reservation {
   id: number;
@@ -12,6 +13,8 @@ interface Reservation {
   time: string;
   pitch: string;
   status: string;
+  created_at: string;
+  email?: string;
 }
 
 export default function DashboardPage() {
@@ -21,31 +24,52 @@ export default function DashboardPage() {
   const [priceWeekend, setPriceWeekend] = useState(12000);
   const [totalSlotsDay, setTotalSlotsDay] = useState(16);
 
-  useEffect(() => {
-    async function fetchData() {
-      const { data: settingsData } = await supabase.from("settings").select("key, value");
-      if (settingsData) {
-        const map = Object.fromEntries(settingsData.map((s) => [s.key, s.value]));
-        if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
-        if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
-        
-        const isWeekend = [0, 5, 6].includes(new Date().getDay());
-        const oH = parseInt((isWeekend ? map.weekend_open : map.weekday_open)?.split(":")[0] || "16");
-        const cH = parseInt((isWeekend ? map.weekend_close : map.weekday_close)?.split(":")[0] || "0");
-        const cHEff = cH === 0 ? 24 : cH;
-        const totalHours = cHEff <= oH ? (24 - oH) + cHEff : cHEff - oH;
-        setTotalSlotsDay(totalHours * 2);
-      }
-      const { data } = await supabase
-        .from("reservations")
-        .select("*")
-        .order("date", { ascending: true })
-        .order("time", { ascending: true });
-      setReservations(data || []);
-      setLoading(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const router = useRouter();
+
+  const fetchData = useCallback(async () => {
+    setRefreshing(true);
+    const { data: settingsData } = await supabase.from("settings").select("key, value");
+    if (settingsData) {
+      const map = Object.fromEntries(settingsData.map((s) => [s.key, s.value]));
+      if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
+      if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
+      
+      const isWeekend = [0, 5, 6].includes(new Date().getDay());
+      const oH = parseInt((isWeekend ? map.weekend_open : map.weekday_open)?.split(":")[0] || "16");
+      const cH = parseInt((isWeekend ? map.weekend_close : map.weekday_close)?.split(":")[0] || "0");
+      const cHEff = cH === 0 ? 24 : cH;
+      const totalHours = cHEff <= oH ? (24 - oH) + cHEff : cHEff - oH;
+      setTotalSlotsDay(totalHours * 2);
     }
-    fetchData();
+    const { data } = await supabase
+      .from("reservations")
+      .select("*")
+      .order("created_at", { ascending: false }); // Sort by creation primarily so recent is visible
+    setReservations(data || []);
+    setLoading(false);
+    setRefreshing(false);
   }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  async function handleValidate(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    if (confirm("Valider cette réservation ?")) {
+      await supabase.from("reservations").update({ status: "confirmed" }).eq("id", id);
+      fetchData();
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    if (confirm("Supprimer cette réservation ?")) {
+      await supabase.from("reservations").update({ status: "deleted", cancellation_reason: "Supprimée depuis le tableau de bord" }).eq("id", id);
+      fetchData();
+    }
+  }
 
   const now = new Date();
   const y = now.getFullYear();
@@ -70,8 +94,8 @@ export default function DashboardPage() {
   ];
 
   const upcomingReservations = reservations
-    .filter((r) => r.date >= today && r.status !== "cancelled")
-    .slice(0, 6);
+    .filter((r) => r.status !== "deleted" && r.status !== "cancelled")
+    .slice(0, 8);
 
   const statusBadge = (status: string) => {
     switch (status) {
@@ -96,13 +120,18 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="font-[var(--font-heading)] text-2xl font-bold uppercase tracking-tight text-white md:text-3xl">
-          Tableau de bord
-        </h1>
-        <p className="mt-1 text-sm text-white/40">
-          Vue d&apos;ensemble — {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="font-[var(--font-heading)] text-2xl font-bold uppercase tracking-tight text-white md:text-3xl">
+            Tableau de bord
+          </h1>
+          <p className="mt-1 text-sm text-white/40">
+            Vue d&apos;ensemble — {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </p>
+        </div>
+        <button onClick={fetchData} disabled={refreshing} className="hidden items-center gap-2 rounded-sm bg-white/5 py-2 px-4 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white sm:flex">
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Actualiser
+        </button>
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -131,29 +160,46 @@ export default function DashboardPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5 text-left text-xs font-medium uppercase tracking-wide text-white/30">
-                <th className="px-5 py-3">Client</th>
-                <th className="px-5 py-3">Date</th>
-                <th className="px-5 py-3">Créneau</th>
+                <th className="px-5 py-3">Client & Info</th>
+                <th className="px-5 py-3">Créneau Visé</th>
                 <th className="px-5 py-3">Terrain</th>
                 <th className="px-5 py-3">Statut</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {upcomingReservations.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-white/30">Aucune réservation à venir.</td></tr>
+                <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-white/30">Aucune réservation récente.</td></tr>
               ) : (
                 upcomingReservations.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
+                  <tr key={r.id} className="cursor-pointer border-b border-white/5 transition-colors hover:bg-white/[0.04]" onClick={() => router.push('/staff/reservations')}>
                     <td className="px-5 py-3.5">
                       <p className="text-sm font-medium text-white/80">{r.name}</p>
                       <p className="text-xs text-white/30">{r.phone}</p>
+                      <div className="mt-2">
+                        <span className="inline-flex items-center gap-1 rounded-[3px] bg-white/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white/80 border border-white/5">
+                          📅 Réservé le {new Date(r.created_at).toLocaleDateString("fr-FR")} à {new Date(r.created_at).toLocaleTimeString("fr-FR", {hour: "2-digit", minute:"2-digit"})}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-5 py-3.5 text-sm text-white/60">
-                      {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                    <td className="px-5 py-3.5">
+                      <p className="text-sm text-white/80">{new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</p>
+                      <p className="text-xs text-white/50">{r.time}</p>
                     </td>
-                    <td className="px-5 py-3.5 text-sm text-white/60">{r.time}</td>
                     <td className="px-5 py-3.5 text-sm text-white/60">{r.pitch}</td>
                     <td className="px-5 py-3.5">{statusBadge(r.status)}</td>
+                    <td className="px-5 py-3.5 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {r.status === "pending" && (
+                          <button onClick={(e) => handleValidate(e, r.id)} className="rounded-sm bg-fiver-green/10 p-1.5 text-fiver-green transition-colors hover:bg-fiver-green/20" title="Valider">
+                            <Check className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button onClick={(e) => handleDelete(e, r.id)} className="rounded-sm bg-red-500/10 p-1.5 text-red-400 transition-colors hover:bg-red-500/20" title="Supprimer">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

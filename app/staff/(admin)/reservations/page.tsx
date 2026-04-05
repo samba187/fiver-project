@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, Search, Check, X as XIcon, Trash2, DollarSign, Smartphone, CreditCard, Banknote } from "lucide-react";
+import { Plus, Search, Check, X as XIcon, Trash2, DollarSign, Smartphone, CreditCard, MessageCircle, Banknote, Eye, Calendar, Clock, MapPin, User, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -19,6 +19,8 @@ interface Reservation {
   amount_paid?: number;
   total_price?: number;
   cancellation_reason?: string;
+  created_at: string;
+  email?: string;
 }
 
 const PAYMENT_METHODS_MAP: Record<string, { label: string; icon: typeof Smartphone; className: string }> = {
@@ -39,16 +41,20 @@ export default function ReservationsPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("pending");
   const [showAdd, setShowAdd] = useState(false);
-  const [newRes, setNewRes] = useState({ name: "", phone: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
+  const [newRes, setNewRes] = useState({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
 
   // Modals state
   const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null; totalPrice: number; amountPaid: number }>({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
   const [payReceiver, setPayReceiver] = useState("");
-  const [payAmount, setPayAmount] = useState("");
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
   const [cancelReason, setCancelReason] = useState("");
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
   const [deleteReason, setDeleteReason] = useState("");
+
+  // Detail modal
+  const [detailModal, setDetailModal] = useState<{ isOpen: boolean; res: Reservation | null }>({ isOpen: false, res: null });
+  function openDetail(res: Reservation) { setDetailModal({ isOpen: true, res }); }
+  function closeDetail() { setDetailModal({ isOpen: false, res: null }); }
 
   const fetchReservations = useCallback(async () => {
     const { data } = await supabase
@@ -63,14 +69,10 @@ export default function ReservationsPage() {
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
 
   async function submitPayment() {
-    if (payModal.id && payReceiver.trim() && payAmount) {
-      const addedAmount = parseInt(payAmount) || 0;
-      const newTotal = payModal.amountPaid + addedAmount;
-      const newStatus = newTotal >= payModal.totalPrice && payModal.totalPrice > 0 ? "paid" : "acompte";
-      await supabase.from("reservations").update({ status: newStatus, payment_receiver: payReceiver, amount_paid: newTotal }).eq("id", payModal.id);
+    if (payModal.id && payReceiver.trim()) {
+      await supabase.from("reservations").update({ status: "paid", payment_receiver: payReceiver, amount_paid: payModal.totalPrice }).eq("id", payModal.id);
       setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
       setPayReceiver("");
-      setPayAmount("");
       fetchReservations();
     }
   }
@@ -96,16 +98,15 @@ export default function ReservationsPage() {
   async function addReservation() {
     if (!newRes.name || !newRes.phone || !newRes.date) return;
     await supabase.from("reservations").insert({
-      name: newRes.name, phone: newRes.phone, date: newRes.date,
+      name: newRes.name, phone: newRes.phone, email: newRes.email, date: newRes.date,
       time: newRes.time, pitch: newRes.pitch, status: "pending",
     });
     const { data: existing } = await supabase.from("clients").select("id, total_bookings").eq("phone", newRes.phone).single();
     if (existing) {
       await supabase.from("clients").update({ total_bookings: existing.total_bookings + 1, last_booking: newRes.date, name: newRes.name }).eq("id", existing.id);
     } else {
-      await supabase.from("clients").insert({ name: newRes.name, phone: newRes.phone, total_bookings: 1, last_booking: newRes.date });
     }
-    setNewRes({ name: "", phone: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
+    setNewRes({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
     setShowAdd(false);
     fetchReservations();
   }
@@ -123,8 +124,6 @@ export default function ReservationsPage() {
     const amountPaid = r?.amount_paid || 0;
     const remaining = totalPrice - amountPaid;
     switch (status) {
-      case "acompte": return <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-400">💳 Acompte{remaining > 0 ? ` (reste ${remaining.toLocaleString()})` : ""}</span>;
-      case "confirmed": return <span className="rounded-full bg-fiver-green/10 px-2 py-0.5 text-xs font-medium text-fiver-green">✅ Validée</span>;
       case "paid": return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">💰 Payée</span>;
       case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
       case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">❌ Annulée</span>;
@@ -137,6 +136,12 @@ export default function ReservationsPage() {
   if (loading) {
     return (<div className="flex min-h-[50vh] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-fiver-green border-t-transparent" /></div>);
   }
+
+  const getWhatsAppLink = (r: Reservation) => {
+    const formattedPhone = r.phone.replace(/\s+/g, "").startsWith("+") ? r.phone.replace(/\s+/g, "").slice(1) : r.phone.replace(/\s+/g, "").startsWith("222") ? r.phone.replace(/\s+/g, "") : `222${r.phone.replace(/\s+/g, "")}`;
+    const text = `*FIVEUR ARENA*\n\nBonjour ${r.name},\nVotre demande de réservation pour le *${r.pitch}* le *${new Date(r.date).toLocaleDateString("fr-FR")}* à *${r.time}* a bien été reçue.\n\n⚠️ Veuillez payer la somme de *${r.total_price || 0} MRU* via *Bankily* ou *Masrvi* au numéro 48 81 38 22.\n\n👉 *Merci de répondre à ce message avec la capture d'écran du paiement pour confirmer votre créneau.*`;
+    return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
+  };
 
   return (
     <div className="min-w-0">
@@ -182,7 +187,7 @@ export default function ReservationsPage() {
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap items-center gap-1 rounded-sm border border-white/10 bg-white/5 p-1">
-          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "acompte", label: "Acompte" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
+          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
             <button key={f.key} onClick={() => setFilterStatus(f.key)} className={cn("rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors", filterStatus === f.key ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}>{f.label}</button>
           ))}
         </div>
@@ -193,59 +198,38 @@ export default function ReservationsPage() {
         {filtered.length === 0 ? (
           <p className="py-12 text-center text-sm text-white/30">Aucune réservation trouvée.</p>
         ) : (
-          filtered.map((r) => (
-            <div key={r.id} className="rounded-lg border border-white/5 bg-white/[0.02] p-4">
-              <div className="mb-3 flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-white/80">{r.name}</p>
-                  <p className="text-xs text-white/30">{r.phone}</p>
-                </div>
-                {statusBadge(r.status, r)}
-              </div>
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
-                <span>📅 {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
-                <span>🕐 {r.time}</span>
-                <span>⚽ {r.pitch}</span>
-              </div>
-              {/* Payment info */}
-              {(() => {
-                const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
-                const totalPrice = r.total_price || 0;
-                const amountPaid = r.amount_paid || 0;
-                const remaining = totalPrice - amountPaid;
-                return totalPrice > 0 || pm ? (
-                  <div className="mb-3 flex flex-wrap items-center gap-2 rounded-sm bg-white/5 px-3 py-2">
-                    {pm ? (
-                      <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
-                        <pm.icon className="h-3 w-3" />{pm.label}
-                      </span>
-                    ) : <span className="text-xs text-white/30">—</span>}
-                    {totalPrice > 0 && (
-                      <>
-                        <span className="text-xs text-white/40">|</span>
-                        <span className="text-xs text-white/60">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>
-                        {remaining > 0 && r.status !== "cancelled" && (
-                          <span className="text-xs font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>
-                        )}
-                      </>
-                    )}
-
+          filtered.map((r) => {
+            const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
+            const totalPrice = r.total_price || 0;
+            const amountPaid = r.amount_paid || 0;
+            return (
+              <div key={r.id} onClick={() => openDetail(r)} className="cursor-pointer rounded-lg border border-white/5 bg-white/[0.02] p-4 transition-all duration-200 hover:border-fiver-green/20 hover:bg-white/[0.04] active:scale-[0.98]">
+                <div className="mb-2 flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/80">{r.name}</p>
+                    <p className="text-xs text-white/30">{r.phone}</p>
                   </div>
-                ) : null;
-              })()}
-              {r.status === "paid" && r.payment_receiver && <div className="mb-3 text-xs italic text-blue-400">Encaissé par : {r.payment_receiver}</div>}
-              {r.status === "cancelled" && r.cancellation_reason && <div className="mb-3 text-xs italic text-red-400">Raison : {r.cancellation_reason}</div>}
-              <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
-                {(r.status === "pending" || r.status === "confirmed" || r.status === "acompte") && (
-                  <button onClick={() => setPayModal({ isOpen: true, id: r.id, totalPrice: r.total_price || 0, amountPaid: r.amount_paid || 0 })} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Encaisser</button>
-                )}
-                {r.status !== "cancelled" && r.status !== "paid" && (
-                  <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400"><XIcon className="h-3 w-3" /> Annuler</button>
-                )}
-                <button onClick={() => setDeleteModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 ml-auto"><Trash2 className="h-3 w-3" /></button>
+                  <div className="flex items-center gap-2">
+                    {statusBadge(r.status, r)}
+                    <Eye className="h-3.5 w-3.5 text-white/20" />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
+                  <span>📅 {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
+                  <span>🕐 {r.time}</span>
+                  <span>⚽ {r.pitch}</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  {pm ? (
+                    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
+                      <pm.icon className="h-3 w-3" />{pm.label}
+                    </span>
+                  ) : <span className="text-xs text-white/30">—</span>}
+                  {totalPrice > 0 && <span className="text-xs text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -268,53 +252,43 @@ export default function ReservationsPage() {
               {filtered.length === 0 ? (
                 <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-white/30">Aucune réservation trouvée.</td></tr>
               ) : (
-                filtered.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
-                    <td className="px-5 py-3.5">
-                      <p className="text-sm font-medium text-white/80">{r.name}</p>
-                      <p className="text-xs text-white/30">{r.phone}</p>
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-white/60">{new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</td>
-                    <td className="px-5 py-3.5 text-sm text-white/60">{r.time}</td>
-                    <td className="px-5 py-3.5 text-sm text-white/60">{r.pitch}</td>
-                    <td className="px-5 py-3.5">
-                      {(() => {
-                        const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
-                        const totalPrice = r.total_price || 0;
-                        const amountPaid = r.amount_paid || 0;
-                        const remaining = totalPrice - amountPaid;
-                        return (
-                          <div className="flex flex-col gap-0.5">
-                            {pm ? (
-                              <span className={cn("inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
-                                <pm.icon className="h-3 w-3" />{pm.label}
-                              </span>
-                            ) : <span className="text-xs text-white/30">—</span>}
-                            {totalPrice > 0 && <span className="text-[10px] text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>}
-                            {remaining > 0 && r.status !== "cancelled" && <span className="text-[10px] font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>}
-
-                          </div>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {statusBadge(r.status, r)}
-                      {r.status === "paid" && r.payment_receiver && <div className="mt-1 text-[10px] text-blue-400/70">Encaissé par {r.payment_receiver}</div>}
-                      {r.status === "cancelled" && r.cancellation_reason && <div className="mt-1 text-[10px] text-red-400/70">Raison: {r.cancellation_reason}</div>}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1">
-                        {(r.status === "pending" || r.status === "confirmed" || r.status === "acompte") && (
-                          <button onClick={() => setPayModal({ isOpen: true, id: r.id, totalPrice: r.total_price || 0, amountPaid: r.amount_paid || 0 })} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Encaisser">💰 Encaisser</button>
-                        )}
-                        {r.status !== "cancelled" && r.status !== "paid" && (
-                          <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-amber-400/60 transition-colors hover:bg-amber-400/10 hover:text-amber-400" title="Annuler"><XIcon className="h-4 w-4" /></button>
-                        )}
-                        <button onClick={() => setDeleteModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-red-400/60 transition-colors hover:bg-red-400/10 hover:text-red-400" title="Supprimer"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filtered.map((r) => {
+                  const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
+                  const totalPrice = r.total_price || 0;
+                  const amountPaid = r.amount_paid || 0;
+                  return (
+                    <tr key={r.id} onClick={() => openDetail(r)} className="cursor-pointer border-b border-white/5 transition-colors hover:bg-white/[0.04]">
+                      <td className="px-5 py-3.5">
+                        <p className="text-sm font-medium text-white/80">{r.name}</p>
+                        <p className="text-xs text-white/30">{r.phone}</p>
+                        <div className="mt-1">
+                          <span className="inline-flex items-center gap-1 rounded-[3px] bg-white/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white/80 border border-white/5">
+                            📅 Réservé le {new Date(r.created_at).toLocaleDateString("fr-FR")} à {new Date(r.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 text-sm text-white/60">{new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</td>
+                      <td className="px-5 py-3.5 text-sm text-white/60">{r.time}</td>
+                      <td className="px-5 py-3.5 text-sm text-white/60">{r.pitch}</td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex flex-col gap-0.5">
+                          {pm ? (
+                            <span className={cn("inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
+                              <pm.icon className="h-3 w-3" />{pm.label}
+                            </span>
+                          ) : <span className="text-xs text-white/30">—</span>}
+                          {totalPrice > 0 && <span className="text-[10px] text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {statusBadge(r.status, r)}
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <Eye className="inline-block h-4 w-4 text-white/20" />
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -326,33 +300,25 @@ export default function ReservationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
             <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-white uppercase tracking-wide">Encaissement</h3>
-            <p className="mb-3 text-sm text-white/50">Saisissez le montant encaissé et le nom de la personne qui encaisse.</p>
+            <p className="mb-3 text-sm text-white/50">Validez l'encaissement et enregistrez votre nom.</p>
             {payModal.totalPrice > 0 && (
               <div className="mb-4 rounded-sm bg-white/5 px-3 py-2 text-xs text-white/50">
-                Déjà payé : <span className="font-medium text-fiver-green">{payModal.amountPaid.toLocaleString()} MRU</span> / {payModal.totalPrice.toLocaleString()} MRU — 
-                Reste : <span className="font-medium text-amber-400">{(payModal.totalPrice - payModal.amountPaid).toLocaleString()} MRU</span>
+                Montant total exigé : <span className="font-medium text-fiver-green">{payModal.totalPrice.toLocaleString()} MRU</span>
               </div>
             )}
-            <input
-              type="number"
-              placeholder="Montant encaissé (ex: 500)"
-              value={payAmount}
-              onChange={(e) => setPayAmount(e.target.value)}
-              className="mb-3 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
-              autoFocus
-            />
             <input
               type="text"
               placeholder="Nom de l'encaisseur (ex: Amadou)"
               value={payReceiver}
               onChange={(e) => setPayReceiver(e.target.value)}
               className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
+              autoFocus
             />
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
-              <button onClick={submitPayment} disabled={!payReceiver.trim() || !payAmount} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer</button>
+              <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitPayment} disabled={!payReceiver.trim()} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer la totalité</button>
             </div>
-            <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+            <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
           </div>
         </div>
       )}
@@ -402,6 +368,167 @@ export default function ReservationsPage() {
           </div>
         </div>
       )}
+
+      {/* Detail Modal */}
+      {detailModal.isOpen && detailModal.res && (() => {
+        const r = detailModal.res;
+        const pm = r.payment_method ? PAYMENT_METHODS_MAP[r.payment_method] : null;
+        const totalPrice = r.total_price || 0;
+        const amountPaid = r.amount_paid || 0;
+        const remaining = totalPrice - amountPaid;
+        const progressPercent = totalPrice > 0 ? Math.min((amountPaid / totalPrice) * 100, 100) : 0;
+        const dateObj = new Date(r.date);
+        const dayName = dateObj.toLocaleDateString("fr-FR", { weekday: "long" });
+        const dateFormatted = dateObj.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-md animate-in fade-in duration-200" onClick={closeDetail}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md animate-in zoom-in-95 duration-300 rounded-xl border border-white/10 bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] shadow-2xl shadow-black/50 relative overflow-hidden">
+              {/* Decorative top bar */}
+              <div className={cn("h-1 w-full",
+                r.status === "paid" ? "bg-gradient-to-r from-blue-500 to-blue-400" :
+                r.status === "cancelled" ? "bg-gradient-to-r from-red-500 to-red-400" :
+                "bg-gradient-to-r from-amber-500 to-amber-400"
+              )} />
+
+              {/* Header */}
+              <div className="px-6 pt-5 pb-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={cn("flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold",
+                      r.status === "paid" ? "bg-blue-500/15 text-blue-400" :
+                      r.status === "cancelled" ? "bg-red-500/15 text-red-400" :
+                      "bg-amber-500/15 text-amber-400"
+                    )}>
+                      {r.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">{r.name}</h3>
+                      <p className="text-xs text-white/40">{r.phone}</p>
+                      {r.email && <p className="text-xs text-fiver-green/60 italic">{r.email}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {statusBadge(r.status, r)}
+                    <button onClick={closeDetail} className="rounded-full p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white">
+                      <XIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                {/* Created at badge */}
+                <div className="mt-3">
+                  <span className="inline-flex items-center gap-1 rounded-[3px] bg-white/10 px-2 py-0.5 text-[10px] font-medium tracking-wide text-white/60 border border-white/5">
+                    📅 Réservé le {new Date(r.created_at).toLocaleDateString("fr-FR")} à {new Date(r.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Info grid */}
+              <div className="mx-6 grid grid-cols-3 gap-3 rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <Calendar className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{dateFormatted}</span>
+                  <span className="text-[10px] capitalize text-white/30">{dayName}</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <Clock className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{r.time}</span>
+                  <span className="text-[10px] text-white/30">Créneau</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <MapPin className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{r.pitch}</span>
+                  <span className="text-[10px] text-white/30">Terrain</span>
+                </div>
+              </div>
+
+              {/* Payment section */}
+              <div className="mx-6 mt-4 rounded-lg border border-white/5 bg-white/[0.03] p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Receipt className="h-4 w-4 text-white/30" />
+                    <span className="text-xs font-medium uppercase tracking-wide text-white/40">Paiement</span>
+                  </div>
+                  {pm ? (
+                    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", pm.className)}>
+                      <pm.icon className="h-3 w-3" />{pm.label}
+                    </span>
+                  ) : <span className="text-xs text-white/30">—</span>}
+                </div>
+                {totalPrice > 0 && (
+                  <>
+                    {/* Progress bar */}
+                    <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/5">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-500",
+                          progressPercent >= 100 ? "bg-gradient-to-r from-blue-500 to-blue-400" :
+                          progressPercent > 0 ? "bg-gradient-to-r from-amber-500 to-amber-400" :
+                          "bg-white/10"
+                        )}
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-sm font-bold text-white">{amountPaid.toLocaleString()} <span className="text-xs font-normal text-white/30">MRU</span></span>
+                      <span className="text-xs text-white/40">sur {totalPrice.toLocaleString()} MRU</span>
+                    </div>
+                    {remaining > 0 && r.status !== "cancelled" && (
+                      <div className="mt-2 flex items-center gap-1.5 rounded-sm bg-amber-500/10 px-2.5 py-1.5">
+                        <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="text-xs font-medium text-amber-400">Reste à payer : {remaining.toLocaleString()} MRU</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {r.status === "paid" && r.payment_receiver && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400/70">
+                    <User className="h-3 w-3" />
+                    <span>Encaissé par <span className="font-medium text-blue-400">{r.payment_receiver}</span></span>
+                  </div>
+                )}
+              </div>
+
+              {/* Cancellation reason */}
+              {r.status === "cancelled" && r.cancellation_reason && (
+                <div className="mx-6 mt-3 flex items-start gap-2 rounded-lg border border-red-500/10 bg-red-500/5 px-4 py-3">
+                  <XIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                  <div>
+                    <span className="text-xs font-medium text-red-400">Raison d&apos;annulation</span>
+                    <p className="mt-0.5 text-xs text-red-400/70">{r.cancellation_reason}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2 px-6 pt-5 pb-6">
+                {r.status === "pending" && (
+                  <button onClick={(e) => { e.stopPropagation(); closeDetail(); setPayModal({ isOpen: true, id: r.id, totalPrice: r.total_price || 0, amountPaid: r.amount_paid || 0 }); }} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-500/10 px-4 py-2.5 text-xs font-semibold text-blue-400 transition-colors hover:bg-blue-500/20">
+                    <DollarSign className="h-4 w-4" /> Encaisser
+                  </button>
+                )}
+                {r.status === "pending" && (
+                  <a href={getWhatsAppLink(r)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#25D366]/10 px-4 py-2.5 text-xs font-semibold text-[#25D366] transition-colors hover:bg-[#25D366]/20">
+                    <MessageCircle className="h-4 w-4" /> WhatsApp
+                  </a>
+                )}
+                {r.status !== "cancelled" && r.status !== "paid" && (
+                  <button onClick={(e) => { e.stopPropagation(); closeDetail(); setCancelModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-amber-500/10 px-4 py-2.5 text-xs font-semibold text-amber-400 transition-colors hover:bg-amber-500/20">
+                    <XIcon className="h-4 w-4" /> Annuler
+                  </button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); closeDetail(); setDeleteModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20">
+                  <Trash2 className="h-4 w-4" /> Supprimer
+                </button>
+                {(r.status === "cancelled" || r.status === "paid") && (
+                  <button onClick={closeDetail} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-white/50 transition-colors hover:bg-white/5 hover:text-white/70">
+                    Fermer
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

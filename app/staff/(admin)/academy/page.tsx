@@ -22,6 +22,7 @@ interface Player {
 
 const CATEGORIES = ["U7", "U9", "U11", "U13", "U15", "U17"];
 const STATUSES = [
+  { value: "pending", label: "En attente", className: "bg-amber-500/10 text-amber-400" },
   { value: "active", label: "Actif", className: "bg-fiver-green/10 text-fiver-green" },
   { value: "inactive", label: "Inactif", className: "bg-white/10 text-white/40" },
   { value: "suspended", label: "Suspendu", className: "bg-red-500/10 text-red-400" },

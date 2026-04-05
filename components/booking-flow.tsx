@@ -8,7 +8,6 @@ import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Lo
 const PAYMENT_METHODS = [
   { value: "bankily", label: "Bankily", icon: Smartphone, desc: "Paiement mobile", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
   { value: "masrvi", label: "Masrvi", icon: CreditCard, desc: "Paiement mobile", color: "border-purple-500 bg-purple-500/10 text-purple-400" },
-  { value: "especes", label: "Espèces", icon: Banknote, desc: "À l'accueil", color: "border-green-500 bg-green-500/10 text-green-400" },
 ];
 
 const STEPS = [
@@ -58,6 +57,7 @@ export function BookingFlow() {
   const [selectedPitch, setSelectedPitch] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -145,7 +145,7 @@ export function BookingFlow() {
   function handlePrev() { if (step > 1) setStep(step - 1); }
   function handleReset() {
     setStep(1); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
-    setName(""); setPhone(""); setPaymentMethod(""); setConfirmed(false); setError("");
+    setName(""); setPhone(""); setEmail(""); setPaymentMethod(""); setConfirmed(false); setError("");
   }
   function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(viewMonth - 1); }
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
@@ -197,10 +197,25 @@ export function BookingFlow() {
       }
 
       const { error: dbError } = await supabase.from("reservations").insert({
-        name, phone, date: dateStr, time: selectedSlot, pitch: selectedPitch, status: "pending",
+        name, phone, email, date: dateStr, time: selectedSlot, pitch: selectedPitch, status: "pending",
         payment_method: paymentMethod, total_price: currentPrice, amount_paid: 0, payment_confirmed: false,
       });
       if (dbError) { setError("Erreur lors de la réservation."); setSubmitting(false); return; }
+
+      // Trigger automatic Email notification to admin
+      try {
+        fetch("/api/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+             type: 'reservation', 
+             data: { name, phone, email, date: dateStr, time: selectedSlot, pitch: selectedPitch, amount: currentPrice },
+             origin: window.location.origin
+          })
+        });
+      } catch (err) {
+        console.error("Failed to trigger Email notification", err);
+      }
 
       // Update local bookedSlots so the slot is immediately blocked
       setBookedSlots((prev) => new Set(prev).add(`${selectedPitch}:${selectedSlot}`));
@@ -227,20 +242,20 @@ export function BookingFlow() {
           {name}, votre terrain est réservé pour le {selectedDate?.toLocaleDateString("fr-FR")} de {selectedSlot} sur {selectedPitch}.
         </p>
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left">
-          {paymentMethod === "especes" ? (
-            <p className="text-sm text-muted-foreground">💰 Paiement de {currentPrice.toLocaleString()} MRU à régler sur place à l&apos;accueil.</p>
-          ) : (
-            <>
-              <p className="mb-2 text-sm font-bold text-foreground">⚠️ Envoyez votre acompte pour valider :</p>
-              <div className="mb-2 rounded-sm bg-fiver-green/20 px-4 py-3 text-center">
-                <p className="text-sm font-semibold text-fiver-green">500 MRU minimum</p>
-                <p className="mt-1 text-2xl font-black tracking-wider text-foreground">48 81 38 22</p>
-                <p className="mt-1 text-xs font-semibold text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
-              </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">💡 En remarque du transfert, indiquez votre <strong className="text-foreground">prénom</strong> et la <strong className="text-foreground">date</strong>.</p>
-            </>
-          )}
+          <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Pour confirmer votre créneau, veuillez nous envoyer la capture d&apos;écran de votre paiement de <strong className="text-foreground">{currentPrice.toLocaleString()} MRU</strong> sur WhatsApp.
+          </p>
+          <a
+            href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour le ${selectedPitch} de ${selectedSlot}.`)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors"
+          >
+            Envoyer mon reçu Bankily
+          </a>
         </div>
+        <p className="mt-4 text-xs text-muted-foreground">Demande créée le {new Date().toLocaleDateString('fr-FR')} à {new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}.</p>
         <button onClick={handleReset} className="mt-6 rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
           Nouvelle réservation
         </button>
@@ -271,160 +286,165 @@ export function BookingFlow() {
         </div>
       </div>
 
-      {/* Step 1: Date */}
-      {step === 1 && (
-        <div className="animate-step">
-          <h3 className="mb-4 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez une date</h3>
-          <div className="mx-auto max-w-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <button onClick={prevMonth} className="rounded-sm p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><ChevronLeft className="h-5 w-5" /></button>
-              <span className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-foreground">{MONTHS[viewMonth]} {viewYear}</span>
-              <button onClick={nextMonth} className="rounded-sm p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><ChevronRight className="h-5 w-5" /></button>
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {DAYS_OF_WEEK.map((d) => <div key={d} className="py-2 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">{d}</div>)}
-              {calendarDays.map((day, idx) => {
-                if (day === null) return <div key={`empty-${idx}`} />;
-                const date = new Date(viewYear, viewMonth, day);
-                const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const isClosed = closedDates.includes(dateStr);
-                const isDisabled = isPast || isClosed;
-                const isSelected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === viewMonth && selectedDate.getFullYear() === viewYear;
-                const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
-                return (
-                  <button key={day} disabled={isDisabled} onClick={() => { setSelectedDate(date); setTimeout(() => setStep(2), 200); }}
-                    className={cn(
-                      "aspect-square rounded-sm text-sm font-medium transition-colors",
-                      isDisabled ? "cursor-not-allowed text-muted-foreground/30 opacity-50" : "text-foreground hover:bg-fiver-green/10",
-                      isClosed && !isPast && "bg-red-500/5 text-red-500 line-through",
-                      isSelected && "bg-fiver-green text-fiver-black",
-                      isToday && !isSelected && !isDisabled && "ring-1 ring-fiver-green/50"
-                    )}
-                  >{day}</button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Time Slots */}
-      {step === 2 && (
-        <div className="animate-step">
-          <h3 className="mb-4 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez un créneau</h3>
-          {availableSlots.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">Aucun créneau disponible pour cette date.</p>
-          ) : (
-            <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
-              {availableSlots.map((slot) => {
-                // Check how many pitches are available for this slot
-                const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
-                const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
-                const fullyBooked = pitch1Booked && pitch2Booked;
-                const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
-
-                return (
-                  <button key={slot.time} disabled={fullyBooked}
-                    onClick={() => { if (!fullyBooked) { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); } }}
-                    className={cn(
-                      "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors",
-                      fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through",
-                      !fullyBooked && selectedSlot !== slot.time && "bg-secondary text-foreground hover:bg-fiver-green/10",
-                      selectedSlot === slot.time && "bg-fiver-green text-fiver-black"
-                    )}
-                  >
-                    {slot.time}
-                    {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: 'none' }}>Complet</span>}
-                    {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 3: Pitch */}
-      {step === 3 && (
-        <div className="animate-step">
-          <h3 className="mb-4 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez votre terrain</h3>
-          <div className="mx-auto flex max-w-md flex-col gap-4 sm:flex-row">
-            {availablePitches.map((pitch) => {
-              const isBooked = selectedSlot ? bookedSlots.has(`${pitch.id}:${selectedSlot}`) : false;
-              const canSelect = pitch.available && !isBooked;
-              return (
-                <button key={pitch.id} disabled={!canSelect} onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(4), 200); } }}
-                  className={cn("flex-1 rounded-sm border-2 px-6 py-8 text-center transition-colors", !canSelect && "cursor-not-allowed border-secondary bg-secondary text-muted-foreground/40", canSelect && selectedPitch !== pitch.id && "border-border bg-card text-foreground hover:border-fiver-green/50", selectedPitch === pitch.id && "border-fiver-green bg-fiver-green/10 text-foreground")}
-                >
-                  <LayoutGrid className={cn("mx-auto mb-3 h-8 w-8", canSelect && selectedPitch === pitch.id ? "text-fiver-green" : canSelect ? "text-muted-foreground" : "text-muted-foreground/30")} />
-                  <span className="font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide">{pitch.id}</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : isBooked ? "Déjà réservé" : "Disponible"}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Details + Confirm */}
-      {step === 4 && (
-        <div className="animate-step">
-          <h3 className="mb-4 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Vos informations</h3>
-          <div className="mx-auto max-w-sm flex flex-col gap-4">
-            <div className="rounded-sm bg-secondary/50 p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Récapitulatif</p>
-              <p className="mt-1 text-sm text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlot} &middot; {selectedPitch}</p>
-              <p className="mt-1 font-[var(--font-heading)] text-lg font-bold text-fiver-green">{currentPrice.toLocaleString()} MRU</p>
-            </div>
-            <div>
-              <label htmlFor="booking-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Nom complet</label>
-              <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required placeholder="Votre nom complet" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
-            </div>
-            <div>
-              <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Téléphone</label>
-              <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required placeholder="Ex: 48 81 38 22" className="w-full rounded-sm border border-input bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
-            </div>
-            <div>
-              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
-              <div className="grid grid-cols-3 gap-2">
-                {PAYMENT_METHODS.map(pm => (
-                  <button key={pm.value} type="button" onClick={() => setPaymentMethod(pm.value)}
-                    className={cn("flex flex-col items-center gap-1.5 rounded-sm border-2 px-3 py-3 text-center transition-all",
-                      paymentMethod === pm.value ? pm.color : "border-border bg-card text-muted-foreground hover:border-muted-foreground/30"
-                    )}>
-                    <pm.icon className="h-5 w-5" />
-                    <span className="text-xs font-semibold">{pm.label}</span>
-                    <span className="text-[10px] opacity-60">{pm.desc}</span>
-                  </button>
-                ))}
+      <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm backdrop-blur-sm sm:p-8">
+        {/* Step 1: Date */}
+        {step === 1 && (
+          <div className="animate-step">
+            <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez une date</h3>
+            <div className="mx-auto max-w-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <button onClick={prevMonth} className="rounded-sm p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><ChevronLeft className="h-5 w-5" /></button>
+                <span className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-foreground">{MONTHS[viewMonth]} {viewYear}</span>
+                <button onClick={nextMonth} className="rounded-sm p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"><ChevronRight className="h-5 w-5" /></button>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {DAYS_OF_WEEK.map((d) => <div key={d} className="py-2 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">{d}</div>)}
+                {calendarDays.map((day, idx) => {
+                  if (day === null) return <div key={`empty-${idx}`} />;
+                  const date = new Date(viewYear, viewMonth, day);
+                  const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                  const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const isClosed = closedDates.includes(dateStr);
+                  const isDisabled = isPast || isClosed;
+                  const isSelected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === viewMonth && selectedDate.getFullYear() === viewYear;
+                  const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
+                  return (
+                    <button key={day} disabled={isDisabled} onClick={() => { setSelectedDate(date); setTimeout(() => setStep(2), 200); }}
+                      className={cn(
+                        "aspect-square rounded-sm text-sm font-medium transition-colors",
+                        isDisabled ? "cursor-not-allowed text-muted-foreground/30 opacity-50" : "text-foreground hover:bg-fiver-green/10",
+                        isClosed && !isPast && "bg-red-500/5 text-red-500 line-through",
+                        isSelected && "bg-fiver-green text-fiver-black",
+                        isToday && !isSelected && !isDisabled && "ring-1 ring-fiver-green/50"
+                      )}
+                    >{day}</button>
+                  );
+                })}
               </div>
             </div>
-            {paymentMethod && paymentMethod !== "especes" && (
-              <div className="rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4">
-                <p className="mb-2 text-sm font-bold text-foreground">⚠️ Envoyez votre acompte pour valider :</p>
-                <div className="mb-2 rounded-sm bg-fiver-green/20 px-4 py-3 text-center">
-                  <p className="text-sm font-semibold text-fiver-green">500 MRU minimum</p>
-                  <p className="mt-1 text-2xl font-black tracking-wider text-foreground">48 81 38 22</p>
-                  <p className="mt-1 text-xs font-semibold text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
-                </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">💡 En remarque du transfert, indiquez votre <strong className="text-foreground">prénom</strong> et la <strong className="text-foreground">date</strong> de réservation. Sans réception, votre réservation pourra être annulée.</p>
+          </div>
+        )}
+
+        {/* Step 2: Time Slots */}
+        {step === 2 && (
+          <div className="animate-step">
+            <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez un créneau</h3>
+            {availableSlots.length === 0 ? (
+              <p className="text-center text-sm text-muted-foreground py-12">Aucun créneau disponible pour cette date.</p>
+            ) : (
+              <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
+                {availableSlots.map((slot) => {
+                  const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
+                  const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
+                  const fullyBooked = pitch1Booked && pitch2Booked;
+                  const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
+
+                  return (
+                    <button key={slot.time} disabled={fullyBooked}
+                      onClick={() => { if (!fullyBooked) { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); } }}
+                      className={cn(
+                        "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors border border-transparent",
+                        fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through",
+                        !fullyBooked && selectedSlot !== slot.time && "bg-secondary/50 text-foreground hover:border-fiver-green/50 hover:bg-fiver-green/5",
+                        selectedSlot === slot.time && "bg-fiver-green text-fiver-black"
+                      )}
+                    >
+                      {slot.time}
+                      {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: 'none' }}>Complet</span>}
+                      {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
+                    </button>
+                  );
+                })}
               </div>
             )}
-            {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
-            <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
-              className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-3 text-sm font-semibold uppercase tracking-wide transition-opacity", name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:opacity-90" : "cursor-not-allowed bg-secondary text-muted-foreground")}
-            >
-              {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Réservation en cours...</> : "Confirmer la réservation"}
-            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      {step > 1 && (
-        <div className="mt-6">
-          <button onClick={handlePrev} className="flex items-center gap-2 rounded-sm px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronLeft className="h-4 w-4" /> Retour
+        {/* Step 3: Pitch */}
+        {step === 3 && (
+          <div className="animate-step">
+            <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez votre terrain</h3>
+            <div className="mx-auto flex max-w-md flex-col gap-4 sm:flex-row">
+              {availablePitches.map((pitch) => {
+                const isBooked = selectedSlot ? bookedSlots.has(`${pitch.id}:${selectedSlot}`) : false;
+                const canSelect = pitch.available && !isBooked;
+                return (
+                  <button key={pitch.id} disabled={!canSelect} onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(4), 200); } }}
+                    className={cn("flex-1 rounded-sm border-2 px-6 py-8 text-center transition-colors shadow-sm", !canSelect && "cursor-not-allowed border-secondary bg-secondary text-muted-foreground/40", canSelect && selectedPitch !== pitch.id && "border-border bg-card text-foreground hover:border-fiver-green/50", selectedPitch === pitch.id && "border-fiver-green bg-fiver-green/10 text-foreground")}
+                  >
+                    <LayoutGrid className={cn("mx-auto mb-3 h-8 w-8", canSelect && selectedPitch === pitch.id ? "text-fiver-green" : canSelect ? "text-muted-foreground" : "text-muted-foreground/30")} />
+                    <span className="font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide">{pitch.id}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : isBooked ? "Déjà réservé" : "Disponible"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Details + Confirm */}
+        {step === 4 && (
+          <div className="animate-step">
+            <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Vos informations</h3>
+            <div className="mx-auto max-w-sm flex flex-col gap-5">
+              <div className="rounded-sm bg-secondary/80 p-4 border border-border/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif de votre session</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlot} &middot; {selectedPitch}</p>
+                <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{currentPrice.toLocaleString()} MRU</p>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="booking-name" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Nom complet *</label>
+                  <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required placeholder="Votre nom complet" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                </div>
+                <div>
+                  <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Téléphone *</label>
+                  <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required placeholder="Ex: 48 81 38 22" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                </div>
+                <div>
+                  <label htmlFor="booking-email" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Email (Optionnel)</label>
+                  <input id="booking-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={100} placeholder="Pour recevoir votre reçu" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                </div>
+              </div>
+              <div>
+                <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {PAYMENT_METHODS.map(pm => (
+                    <button key={pm.value} type="button" onClick={() => setPaymentMethod(pm.value)}
+                      className={cn("flex flex-col items-center gap-1.5 rounded-sm border-2 px-3 py-4 text-center transition-all",
+                        paymentMethod === pm.value ? pm.color : "border-border bg-background text-muted-foreground hover:border-muted-foreground/30"
+                      )}>
+                      <pm.icon className="h-5 w-5" />
+                      <span className="text-xs font-bold uppercase tracking-wide">{pm.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {paymentMethod && (
+                <div className="rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
+                  <p className="mb-3 text-sm font-medium text-foreground">Envoyez <strong className="text-fiver-green text-lg font-bold">{currentPrice.toLocaleString()} MRU</strong> ici :</p>
+                  <div className="mb-3 rounded-sm bg-fiver-green/10 border border-fiver-green/20 px-4 py-4 text-center">
+                    <p className="text-3xl font-black tracking-widest text-foreground">48 81 38 22</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">👉 À l&apos;étape suivante, vous devrez nous envoyer la <strong>capture d&apos;écran</strong> sur WhatsApp avec votre nom. <br/>⚠️ Sans preuve sous 2h, votre créneau sera libéré.</p>
+                </div>
+              )}
+              {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400 border border-red-500/20">{error}</div>}
+              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
+                className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-4 text-sm font-bold uppercase tracking-widest transition-all", name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}
+              >
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</> : "Confirmer ma demande"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {step > 1 && !confirmed && (
+        <div className="mt-8 flex justify-center">
+          <button onClick={handlePrev} className="flex items-center gap-2 rounded-full border border-border bg-card px-6 py-2 text-xs font-bold uppercase tracking-widest text-muted-foreground transition-all hover:border-fiver-green hover:text-foreground">
+            <ChevronLeft className="h-3.5 w-3.5" /> Retour
           </button>
         </div>
       )}

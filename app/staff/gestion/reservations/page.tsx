@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, Search, Check, X as XIcon, DollarSign, CreditCard, Banknote, Smartphone } from "lucide-react";
+import { Plus, Search, Check, X as XIcon, DollarSign, CreditCard, Banknote, Smartphone, Eye, Calendar, Clock, MapPin, User, Phone, Receipt, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -19,6 +19,8 @@ interface Reservation {
   amount_paid?: number;
   total_price?: number;
   cancellation_reason?: string;
+  created_at?: string;
+  email?: string;
 }
 
 const TIME_OPTIONS = [
@@ -73,8 +75,15 @@ export default function GestionReservationsPage() {
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
   const [cancelReason, setCancelReason] = useState("");
 
-  // Confirm payment received modal (for Bankily/Masrvi)
-  const [confirmPayModal, setConfirmPayModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
+  // Detail modal
+  const [detailModal, setDetailModal] = useState<{ isOpen: boolean; res: Reservation | null }>({ isOpen: false, res: null });
+
+  function openDetail(res: Reservation) {
+    setDetailModal({ isOpen: true, res });
+  }
+  function closeDetail() {
+    setDetailModal({ isOpen: false, res: null });
+  }
 
   useEffect(() => {
     async function fetchSettings() {
@@ -107,11 +116,6 @@ export default function GestionReservationsPage() {
     return isWeekend ? priceWeekend : priceWeekday;
   }
 
-  async function confirmRes(id: number) {
-    await supabase.from("reservations").update({ status: "confirmed" }).eq("id", id);
-    fetchReservations();
-  }
-
   async function submitPayment() {
     if (payModal.id && payReceiver.trim() && payAmount) {
       const amount = parseInt(payAmount);
@@ -122,7 +126,7 @@ export default function GestionReservationsPage() {
       const isPaid = newTotal >= totalPrice;
 
       await supabase.from("reservations").update({
-        status: isPaid ? "paid" : "confirmed",
+        status: "paid",
         payment_receiver: payReceiver,
         payment_method: payMethod || res?.payment_method || "especes",
         amount_paid: newTotal,
@@ -147,18 +151,12 @@ export default function GestionReservationsPage() {
     }
   }
 
-  async function confirmPaymentReceived(id: number) {
-    await supabase.from("reservations").update({ payment_confirmed: true }).eq("id", id);
-    setConfirmPayModal({ isOpen: false, id: null });
-    fetchReservations();
-  }
-
   async function addReservation() {
     if (!newRes.name || !newRes.phone || !newRes.date) return;
     const totalPrice = getPrice(newRes.date);
     await supabase.from("reservations").insert({
       name: newRes.name, phone: newRes.phone, date: newRes.date,
-      time: newRes.time, pitch: newRes.pitch, status: "confirmed",
+      time: newRes.time, pitch: newRes.pitch, status: "pending",
       total_price: totalPrice, amount_paid: 0, payment_confirmed: false,
     });
     const { data: existing } = await supabase.from("clients").select("id, total_bookings").eq("phone", newRes.phone).single();
@@ -182,12 +180,18 @@ export default function GestionReservationsPage() {
 
   const statusBadge = (status: string) => {
     switch (status) {
-      case "confirmed": return <span className="rounded-full bg-fiver-green/10 px-2 py-0.5 text-xs font-medium text-fiver-green">Confirmée</span>;
       case "paid": return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">💰 Payée</span>;
-      case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">En attente</span>;
+      case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
       case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">Annulée</span>;
       default: return null;
     }
+  };
+
+  const getWhatsAppLink = (r: Reservation) => {
+    const formattedPhone = r.phone.replace(/\s+/g, "").startsWith("+") ? r.phone.replace(/\s+/g, "").slice(1) : r.phone.replace(/\s+/g, "").startsWith("222") ? r.phone.replace(/\s+/g, "") : `222${r.phone.replace(/\s+/g, "")}`;
+    const totalPrice = r.total_price || getPrice(r.date);
+    const text = `*FIVEUR ARENA*\n\nBonjour ${r.name},\nVotre demande de réservation pour le *${r.pitch}* le *${new Date(r.date).toLocaleDateString("fr-FR")}* à *${r.time}* a bien été reçue.\n\n⚠️ Veuillez payer la somme de *${totalPrice} MRU* via *Bankily* ou *Masrvi* au numéro 48 81 38 22.\n\n👉 *Merci de répondre à ce message avec la capture d'écran du paiement pour confirmer votre créneau.*`;
+    return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
   };
 
   const inputClass = "w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green";
@@ -240,7 +244,7 @@ export default function GestionReservationsPage() {
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap items-center gap-1 rounded-sm border border-white/10 bg-white/5 p-1">
-          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "Attente" }, { key: "confirmed", label: "Confirm." }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
+          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "Attente" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
             <button key={f.key} onClick={() => setFilterStatus(f.key)} className={cn("rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors", filterStatus === f.key ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}>{f.label}</button>
           ))}
         </div>
@@ -256,48 +260,25 @@ export default function GestionReservationsPage() {
             const amountPaid = r.amount_paid || 0;
             const remaining = totalPrice - amountPaid;
             return (
-              <div key={r.id} className="rounded-lg border border-white/5 bg-white/[0.02] p-4">
+              <div key={r.id} onClick={() => openDetail(r)} className="cursor-pointer rounded-lg border border-white/5 bg-white/[0.02] p-4 transition-all duration-200 hover:border-fiver-green/20 hover:bg-white/[0.04] active:scale-[0.98]">
                 <div className="mb-3 flex items-start justify-between">
                   <div>
                     <p className="text-sm font-medium text-white/80">{r.name}</p>
                     <p className="text-xs text-white/30">{r.phone}</p>
                   </div>
-                  {statusBadge(r.status)}
+                  <div className="flex items-center gap-2">
+                    {statusBadge(r.status)}
+                    <Eye className="h-3.5 w-3.5 text-white/20" />
+                  </div>
                 </div>
-                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-white/50">
                   <span>📅 {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
                   <span>🕐 {r.time}</span>
                   <span>⚽ {r.pitch}</span>
                 </div>
-                {/* Payment info */}
-                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-sm bg-white/5 px-3 py-2">
+                <div className="mt-2 flex items-center gap-2">
                   <PaymentMethodBadge method={r.payment_method} />
-                  <span className="text-xs text-white/40">|</span>
-                  <span className="text-xs text-white/60">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>
-                  {remaining > 0 && r.status !== "cancelled" && (
-                    <span className="text-xs font-medium text-amber-400">Reste: {remaining.toLocaleString()} MRU</span>
-                  )}
-                  {r.payment_method && r.payment_method !== "especes" && (
-                    r.payment_confirmed
-                      ? <span className="text-xs text-fiver-green">✓ Reçu</span>
-                      : <span className="text-xs text-red-400">✗ Non confirmé</span>
-                  )}
-                </div>
-                {r.status === "paid" && r.payment_receiver && <div className="mb-3 text-xs italic text-blue-400">Encaissé par : {r.payment_receiver}</div>}
-                {r.status === "cancelled" && r.cancellation_reason && <div className="mb-3 text-xs italic text-red-400">Raison : {r.cancellation_reason}</div>}
-                <div className="flex flex-wrap gap-2 border-t border-white/5 pt-3">
-                  {r.status === "pending" && (
-                    <button onClick={() => confirmRes(r.id)} className="flex items-center gap-1 rounded-sm bg-fiver-green/10 px-3 py-1.5 text-xs font-medium text-fiver-green"><Check className="h-3 w-3" /> Confirmer</button>
-                  )}
-                  {(r.status === "pending" || r.status === "confirmed") && (
-                    <button onClick={() => { setPayModal({ isOpen: true, id: r.id, res: r }); setPayMethod(r.payment_method || ""); setPayAmount(String((r.total_price || getPrice(r.date)) - (r.amount_paid || 0))); }} className="flex items-center gap-1 rounded-sm bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400"><DollarSign className="h-3 w-3" /> Encaisser</button>
-                  )}
-                  {r.payment_method && r.payment_method !== "especes" && !r.payment_confirmed && r.status !== "cancelled" && (
-                    <button onClick={() => setConfirmPayModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-fiver-green/10 px-3 py-1.5 text-xs font-medium text-fiver-green"><Check className="h-3 w-3" /> Paiement reçu</button>
-                  )}
-                  {r.status !== "cancelled" && r.status !== "paid" && (
-                    <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="flex items-center gap-1 rounded-sm bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400"><XIcon className="h-3 w-3" /> Annuler</button>
-                  )}
+                  <span className="text-xs text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>
                 </div>
               </div>
             );
@@ -329,7 +310,7 @@ export default function GestionReservationsPage() {
                   const amountPaid = r.amount_paid || 0;
                   const remaining = totalPrice - amountPaid;
                   return (
-                    <tr key={r.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
+                    <tr key={r.id} onClick={() => openDetail(r)} className="cursor-pointer border-b border-white/5 transition-colors hover:bg-white/[0.04]">
                       <td className="px-5 py-3.5">
                         <p className="text-sm font-medium text-white/80">{r.name}</p>
                         <p className="text-xs text-white/30">{r.phone}</p>
@@ -341,34 +322,13 @@ export default function GestionReservationsPage() {
                         <div className="flex flex-col gap-1">
                           <PaymentMethodBadge method={r.payment_method} />
                           <span className="text-[10px] text-white/40">{amountPaid.toLocaleString()} / {totalPrice.toLocaleString()} MRU</span>
-                          {remaining > 0 && r.status !== "cancelled" && <span className="text-[10px] font-medium text-amber-400">Reste: {remaining.toLocaleString()}</span>}
-                          {r.payment_method && r.payment_method !== "especes" && (
-                            r.payment_confirmed
-                              ? <span className="text-[10px] text-fiver-green">✓ Reçu</span>
-                              : <span className="text-[10px] text-red-400">✗ Non confirmé</span>
-                          )}
                         </div>
                       </td>
                       <td className="px-5 py-3.5">
                         {statusBadge(r.status)}
-                        {r.status === "paid" && r.payment_receiver && <div className="mt-1 text-[10px] text-blue-400/70">Par {r.payment_receiver}</div>}
-                        {r.status === "cancelled" && r.cancellation_reason && <div className="mt-1 text-[10px] text-red-400/70">Raison: {r.cancellation_reason}</div>}
                       </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center justify-end gap-1">
-                          {r.status === "pending" && (
-                            <button onClick={() => confirmRes(r.id)} className="rounded-sm p-1.5 text-fiver-green/60 transition-colors hover:bg-fiver-green/10 hover:text-fiver-green" title="Confirmer"><Check className="h-4 w-4" /></button>
-                          )}
-                          {(r.status === "pending" || r.status === "confirmed") && (
-                            <button onClick={() => { setPayModal({ isOpen: true, id: r.id, res: r }); setPayMethod(r.payment_method || ""); setPayAmount(String((r.total_price || getPrice(r.date)) - (r.amount_paid || 0))); }} className="rounded-sm px-2 py-1 text-xs font-medium text-blue-400/80 transition-colors hover:bg-blue-400/10 hover:text-blue-400" title="Encaisser">💰 Encaisser</button>
-                          )}
-                          {r.payment_method && r.payment_method !== "especes" && !r.payment_confirmed && r.status !== "cancelled" && (
-                            <button onClick={() => setConfirmPayModal({ isOpen: true, id: r.id })} className="rounded-sm px-2 py-1 text-xs font-medium text-fiver-green/80 transition-colors hover:bg-fiver-green/10 hover:text-fiver-green" title="Confirmer réception">✓ Reçu</button>
-                          )}
-                          {r.status !== "cancelled" && r.status !== "paid" && (
-                            <button onClick={() => setCancelModal({ isOpen: true, id: r.id })} className="rounded-sm p-1.5 text-amber-400/60 transition-colors hover:bg-amber-400/10 hover:text-amber-400" title="Annuler"><XIcon className="h-4 w-4" /></button>
-                          )}
-                        </div>
+                      <td className="px-5 py-3.5 text-right">
+                        <Eye className="inline-block h-4 w-4 text-white/20" />
                       </td>
                     </tr>
                   );
@@ -457,20 +417,147 @@ export default function GestionReservationsPage() {
         </div>
       )}
 
-      {/* Confirm Payment Received Modal */}
-      {confirmPayModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
-            <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-fiver-green uppercase tracking-wide">Confirmer la réception</h3>
-            <p className="mb-5 text-sm text-white/50">Confirmez-vous que le paiement mobile (Bankily/Masrvi) a bien été reçu ?</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setConfirmPayModal({ isOpen: false, id: null })} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
-              <button onClick={() => confirmPayModal.id && confirmPaymentReceived(confirmPayModal.id)} className="rounded-sm bg-fiver-green px-5 py-2 text-sm font-bold text-fiver-black hover:opacity-90 transition-colors">Oui, reçu ✓</button>
+      {/* Detail Modal */}
+      {detailModal.isOpen && detailModal.res && (() => {
+        const r = detailModal.res;
+        const totalPrice = r.total_price || getPrice(r.date);
+        const amountPaid = r.amount_paid || 0;
+        const remaining = totalPrice - amountPaid;
+        const progressPercent = Math.min((amountPaid / totalPrice) * 100, 100);
+        const dateObj = new Date(r.date);
+        const dayName = dateObj.toLocaleDateString("fr-FR", { weekday: "long" });
+        const dateFormatted = dateObj.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-md animate-in fade-in duration-200" onClick={closeDetail}>
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md animate-in zoom-in-95 duration-300 rounded-xl border border-white/10 bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] shadow-2xl shadow-black/50 relative overflow-hidden">
+              {/* Decorative top bar */}
+              <div className={cn("h-1 w-full",
+                r.status === "paid" ? "bg-gradient-to-r from-blue-500 to-blue-400" :
+                r.status === "cancelled" ? "bg-gradient-to-r from-red-500 to-red-400" :
+                "bg-gradient-to-r from-amber-500 to-amber-400"
+              )} />
+
+              {/* Header */}
+              <div className="px-6 pt-5 pb-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={cn("flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold",
+                      r.status === "paid" ? "bg-blue-500/15 text-blue-400" :
+                      r.status === "cancelled" ? "bg-red-500/15 text-red-400" :
+                      "bg-amber-500/15 text-amber-400"
+                    )}>
+                      {r.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">{r.name}</h3>
+                      <p className="text-xs text-white/40">{r.phone}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {statusBadge(r.status)}
+                    <button onClick={closeDetail} className="rounded-full p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white">
+                      <XIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Info grid */}
+              <div className="mx-6 grid grid-cols-3 gap-3 rounded-lg border border-white/5 bg-white/[0.03] p-3">
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <Calendar className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{dateFormatted}</span>
+                  <span className="text-[10px] capitalize text-white/30">{dayName}</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <Clock className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{r.time}</span>
+                  <span className="text-[10px] text-white/30">Créneau</span>
+                </div>
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <MapPin className="h-4 w-4 text-white/30" />
+                  <span className="text-xs font-medium text-white/70">{r.pitch}</span>
+                  <span className="text-[10px] text-white/30">Terrain</span>
+                </div>
+              </div>
+
+              {/* Payment section */}
+              <div className="mx-6 mt-4 rounded-lg border border-white/5 bg-white/[0.03] p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Receipt className="h-4 w-4 text-white/30" />
+                    <span className="text-xs font-medium uppercase tracking-wide text-white/40">Paiement</span>
+                  </div>
+                  <PaymentMethodBadge method={r.payment_method} />
+                </div>
+                {/* Progress bar */}
+                <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/5">
+                  <div
+                    className={cn("h-full rounded-full transition-all duration-500",
+                      progressPercent >= 100 ? "bg-gradient-to-r from-blue-500 to-blue-400" :
+                      progressPercent > 0 ? "bg-gradient-to-r from-amber-500 to-amber-400" :
+                      "bg-white/10"
+                    )}
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-bold text-white">{amountPaid.toLocaleString()} <span className="text-xs font-normal text-white/30">MRU</span></span>
+                  <span className="text-xs text-white/40">sur {totalPrice.toLocaleString()} MRU</span>
+                </div>
+                {remaining > 0 && r.status !== "cancelled" && (
+                  <div className="mt-2 flex items-center gap-1.5 rounded-sm bg-amber-500/10 px-2.5 py-1.5">
+                    <div className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-xs font-medium text-amber-400">Reste à payer : {remaining.toLocaleString()} MRU</span>
+                  </div>
+                )}
+                {r.status === "paid" && r.payment_receiver && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-400/70">
+                    <User className="h-3 w-3" />
+                    <span>Encaissé par <span className="font-medium text-blue-400">{r.payment_receiver}</span></span>
+                  </div>
+                )}
+              </div>
+
+              {/* Cancellation reason */}
+              {r.status === "cancelled" && r.cancellation_reason && (
+                <div className="mx-6 mt-3 flex items-start gap-2 rounded-lg border border-red-500/10 bg-red-500/5 px-4 py-3">
+                  <XIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                  <div>
+                    <span className="text-xs font-medium text-red-400">Raison d&apos;annulation</span>
+                    <p className="mt-0.5 text-xs text-red-400/70">{r.cancellation_reason}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2 px-6 pt-5 pb-6">
+                {r.status === "pending" && (
+                  <button onClick={(e) => { e.stopPropagation(); closeDetail(); setPayModal({ isOpen: true, id: r.id, res: r }); setPayMethod(r.payment_method || ""); setPayAmount(String((r.total_price || getPrice(r.date)) - (r.amount_paid || 0))); }} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-500/10 px-4 py-2.5 text-xs font-semibold text-blue-400 transition-colors hover:bg-blue-500/20">
+                    <DollarSign className="h-4 w-4" /> Encaisser
+                  </button>
+                )}
+                {r.status === "pending" && (
+                  <a href={getWhatsAppLink(r)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#25D366]/10 px-4 py-2.5 text-xs font-semibold text-[#25D366] transition-colors hover:bg-[#25D366]/20">
+                    <MessageCircle className="h-4 w-4" /> WhatsApp
+                  </a>
+                )}
+                {r.status !== "cancelled" && r.status !== "paid" && (
+                  <button onClick={(e) => { e.stopPropagation(); closeDetail(); setCancelModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20">
+                    <XIcon className="h-4 w-4" /> Annuler
+                  </button>
+                )}
+                {(r.status === "cancelled" || r.status === "paid") && (
+                  <button onClick={closeDetail} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-white/50 transition-colors hover:bg-white/5 hover:text-white/70">
+                    Fermer
+                  </button>
+                )}
+              </div>
             </div>
-            <button onClick={() => setConfirmPayModal({ isOpen: false, id: null })} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 
 const CONTACT_INFO = [
   { icon: MapPin, title: "Adresse", lines: ["Complexe FIVEUR ARENA", "Nouakchott, Mauritanie"] },
-  { icon: Phone, title: "Téléphone", lines: ["+222 XX XX XX XX", "+222 YY YY YY YY"] },
-  { icon: Mail, title: "Email", lines: ["contact@fiversoccer.com"] },
+  { icon: Phone, title: "Téléphone", lines: ["+222 48 81 38 22"] },
+  { icon: Mail, title: "Email", lines: ["contact.fiveur@gmail.com"] },
   { icon: Clock, title: "Horaires", lines: ["Lun - Ven: 16h - 00h", "Sam - Dim: 10h - 00h"] },
 ];
 
@@ -58,7 +58,7 @@ export default function ContactPage() {
         parent_name: name,
         parent_phone: phone,
         parent_email: email || null,
-        status: "active",
+        status: "pending",
         notes: `Age: ${playerAge}\nPoste: ${playerPosition}\nExpérience: ${playerExperience}\nMessage: ${message}`,
       });
       if (dbError) {
@@ -74,7 +74,7 @@ export default function ContactPage() {
         parent_name: name,
         parent_phone: phone,
         parent_email: email || null,
-        status: "active",
+        status: "pending",
         notes: message || null,
       });
       if (dbError) {
@@ -98,6 +98,18 @@ export default function ContactPage() {
         return;
       }
     }
+
+    try {
+      fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: subject === "inscription_academy" ? "academy" : subject === "inscription_loisirs" ? "loisirs" : "contact",
+          data: { name, email, phone, subject, message, playerName, playerAge, playerCategory },
+          origin: window.location.origin
+        })
+      });
+    } catch (err) { console.error("Notification failed", err); }
 
     setSent(true);
     setSending(false);
@@ -216,12 +228,15 @@ export default function ContactPage() {
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Catégorie souhaitée</label>
                       <select value={playerCategory} onChange={(e) => setPlayerCategory(e.target.value)} className={inputClass}>
                         <option value="">Sélectionner</option>
-                        <option value="U7">U7 (5-6 ans)</option>
+                        <option value="U5/U7">U5 / U7 (5-6 ans)</option>
                         <option value="U9">U9 (7-8 ans)</option>
                         <option value="U11">U11 (9-10 ans)</option>
+                        <option value="U11F">U11F (Filles 9-10 ans)</option>
                         <option value="U13">U13 (11-12 ans)</option>
                         <option value="U15">U15 (13-14 ans)</option>
+                        <option value="U15F">U15F (Filles 13-14 ans)</option>
                         <option value="U17">U17 (15-16 ans)</option>
+                        <option value="U18">U18 (17-18 ans)</option>
                       </select>
                     </div>
                     <div>
