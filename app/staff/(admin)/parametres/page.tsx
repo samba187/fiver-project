@@ -140,7 +140,7 @@ export default function ParametresPage() {
           <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Horaires d&apos;ouverture</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <p className="mb-2 text-xs font-medium text-white/50">Lundi — Vendredi</p>
+              <p className="mb-2 text-xs font-medium text-white/50">Lundi — Jeudi</p>
               <div className="flex items-center gap-2">
                 <div className="flex-1"><label className={labelClass}>Ouverture</label><input type="time" value={weekdayOpen} onChange={(e) => setWeekdayOpen(e.target.value)} className={inputClass} /></div>
                 <span className="mt-5 text-white/20">→</span>
@@ -148,7 +148,7 @@ export default function ParametresPage() {
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium text-white/50">Samedi — Dimanche</p>
+              <p className="mb-2 text-xs font-medium text-white/50">Vendredi — Dimanche</p>
               <div className="flex items-center gap-2">
                 <div className="flex-1"><label className={labelClass}>Ouverture</label><input type="time" value={weekendOpen} onChange={(e) => setWeekendOpen(e.target.value)} className={inputClass} /></div>
                 <span className="mt-5 text-white/20">→</span>
@@ -161,8 +161,8 @@ export default function ParametresPage() {
         <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
           <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Tarification (MRU / heure)</h2>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div><label className={labelClass}>Lun — Ven</label><div className="relative"><input type="number" value={priceWeekday} onChange={(e) => setPriceWeekday(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
-            <div><label className={labelClass}>Sam — Dim</label><div className="relative"><input type="number" value={priceWeekend} onChange={(e) => setPriceWeekend(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
+            <div><label className={labelClass}>Lun — Jeu</label><div className="relative"><input type="number" value={priceWeekday} onChange={(e) => setPriceWeekday(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
+            <div><label className={labelClass}>Ven — Dim</label><div className="relative"><input type="number" value={priceWeekend} onChange={(e) => setPriceWeekend(e.target.value)} className={inputClass} /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">MRU</span></div></div>
           </div>
         </div>
 
