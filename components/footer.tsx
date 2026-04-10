@@ -1,8 +1,29 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
 import { MapPin, Phone, Mail } from "lucide-react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
 export function Footer() {
+  const [hours, setHours] = useState({ weekday: "Chargement...", weekend: "" });
+
+  useEffect(() => {
+    async function fetchSettings() {
+      const { data } = await supabase.from("settings").select("key, value").in("key", ["weekday_open", "weekday_close", "weekend_open", "weekend_close"]);
+      if (data) {
+        const map = Object.fromEntries(data.map((s) => [s.key, s.value]));
+        const formatTime = (t?: string) => t ? t.split(":")[0] + "h" + (t.split(":")[1] !== "00" ? t.split(":")[1] : "") : "";
+        setHours({
+          weekday: `${formatTime(map.weekday_open)} - ${formatTime(map.weekday_close)}`,
+          weekend: `${formatTime(map.weekend_open)} - ${formatTime(map.weekend_close)}`,
+        });
+      }
+    }
+    fetchSettings();
+  }, []);
+
   return (
     <footer className="bg-fiver-black text-primary-foreground">
       <div className="mx-auto max-w-7xl px-4 py-16 lg:px-8">
@@ -67,11 +88,11 @@ export function Footer() {
               </li>
               <li className="flex items-center gap-2 text-sm text-primary-foreground/60">
                 <Phone className="h-4 w-4 shrink-0" />
-                +222 XX XX XX XX
+                +222 48 81 38 22
               </li>
               <li className="flex items-center gap-2 text-sm text-primary-foreground/60">
                 <Mail className="h-4 w-4 shrink-0" />
-                contact@fiversoccer.com
+                contact.fiveur@gmail.com
               </li>
             </ul>
           </div>
@@ -83,11 +104,13 @@ export function Footer() {
             </h3>
             <ul className="mt-4 flex flex-col gap-3">
               <li className="text-sm text-primary-foreground/60">
-                <span className="text-primary-foreground/80">Lun - Ven:</span> 16h - 00h
+                <span className="text-primary-foreground/80">Lun - Jeu:</span> {hours.weekday}
               </li>
-              <li className="text-sm text-primary-foreground/60">
-                <span className="text-primary-foreground/80">Sam - Dim:</span> 10h - 00h
-              </li>
+              {hours.weekend && (
+                <li className="text-sm text-primary-foreground/60">
+                  <span className="text-primary-foreground/80">Ven - Dim:</span> {hours.weekend}
+                </li>
+              )}
             </ul>
           </div>
         </div>

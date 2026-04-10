@@ -1,18 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { supabase } from "@/lib/supabase";
 import { MapPin, Phone, Mail, Clock, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const CONTACT_INFO = [
-  { icon: MapPin, title: "Adresse", lines: ["Complexe FIVEUR ARENA", "Nouakchott, Mauritanie"] },
-  { icon: Phone, title: "Téléphone", lines: ["+222 48 81 38 22"] },
-  { icon: Mail, title: "Email", lines: ["contact.fiveur@gmail.com"] },
-  { icon: Clock, title: "Horaires", lines: ["Lun - Ven: 16h - 00h", "Sam - Dim: 10h - 00h"] },
-];
+// Removed static CONTACT_INFO array
 
 const SUBJECTS = [
   { value: "", label: "Sélectionnez un sujet" },
@@ -35,6 +30,29 @@ export default function ContactPage() {
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [hours, setHours] = useState({ weekday: "Chargement...", weekend: "" });
+
+  useEffect(() => {
+    async function fetchSettings() {
+      const { data } = await supabase.from("settings").select("key, value").in("key", ["weekday_open", "weekday_close", "weekend_open", "weekend_close"]);
+      if (data) {
+        const map = Object.fromEntries(data.map((s) => [s.key, s.value]));
+        const formatTime = (t?: string) => t ? t.split(":")[0] + "h" + (t.split(":")[1] !== "00" ? t.split(":")[1] : "") : "";
+        setHours({
+          weekday: `Lun - Jeu : ${formatTime(map.weekday_open)} - ${formatTime(map.weekday_close)}`,
+          weekend: `Ven - Dim : ${formatTime(map.weekend_open)} - ${formatTime(map.weekend_close)}`,
+        });
+      }
+    }
+    fetchSettings();
+  }, []);
+
+  const contactInfo = [
+    { icon: MapPin, title: "Adresse", lines: ["Cité Concorde", "Nouakchott, Mauritanie"] },
+    { icon: Phone, title: "Téléphone", lines: ["+222 48 81 38 22"] },
+    { icon: Mail, title: "Email", lines: ["contact.fiveur@gmail.com"] },
+    { icon: Clock, title: "Horaires", lines: hours.weekend ? [hours.weekday, hours.weekend] : [hours.weekday] },
+  ];
 
   // Academy inscription extra fields
   const [playerName, setPlayerName] = useState("");
@@ -144,7 +162,7 @@ export default function ContactPage() {
       <section className="bg-background py-16">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {CONTACT_INFO.map((info) => (
+            {contactInfo.map((info) => (
               <div key={info.title} className="stagger-card rounded-sm border border-border bg-card p-6 text-center transition-all duration-300 hover:border-fiver-green/30">
                 <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-sm bg-fiver-green/10">
                   <info.icon className="h-5 w-5 text-fiver-green" />
