@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { supabase } from "@/lib/supabase";
-import { MapPin, Phone, Mail, Clock, Check, Loader2 } from "lucide-react";
+import { MapPin, Phone, Mail, Clock, Check, Loader2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Removed static CONTACT_INFO array
@@ -325,6 +325,40 @@ export default function ContactPage() {
               </button>
             </form>
           )}
+        </div>
+      </section>
+
+      {/* Google Maps */}
+      <section className="bg-background py-20">
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="mb-10 text-center">
+            <span className="font-[var(--font-heading)] text-xs font-medium uppercase tracking-[0.3em] text-fiver-green">Localisation</span>
+            <h2 className="mt-2 font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-foreground md:text-4xl">
+              Nous trouver
+            </h2>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3860.3!2d-15.9786!3d18.0869!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMTjCsDA1JzEyLjgiTiAxNcKwNTgnNDMuMCJX!5e0!3m2!1sfr!2smr!4v1710000000000!5m2!1sfr!2smr"
+              width="100%"
+              height="400"
+              style={{ border: 0 }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="w-full"
+            />
+          </div>
+          <div className="mt-6 text-center">
+            <a
+              href="https://maps.app.goo.gl/oWC9jWktqMe4ye8a7"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-sm bg-fiver-green px-6 py-3 text-sm font-bold uppercase tracking-wide text-fiver-black shadow-lg shadow-fiver-green/20 transition-transform hover:scale-105"
+            >
+              <ExternalLink className="h-4 w-4" /> Ouvrir dans Google Maps
+            </a>
+          </div>
         </div>
       </section>
 
