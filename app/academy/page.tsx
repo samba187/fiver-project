@@ -1,15 +1,12 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import Image from "next/image";
 import Link from "next/link";
-import { Trophy, Users, Target, Shield, Calendar, Star, Flame, Medal, ChevronRight } from "lucide-react";
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Fiveur Academy | Club de Football - Nouakchott",
-  description:
-    "Rejoignez la Fiveur Academy, le club de football de Nouakchott. Formation, compétitions et développement des jeunes talents.",
-};
+import { Trophy, Users, Target, Shield, Calendar, Star, Flame, Medal, ChevronRight, MapPin, ExternalLink } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 const PILLARS = [
   { icon: Trophy, title: "Excellence", description: "Viser le plus haut niveau à travers un programme d'entraînement exigeant et structuré." },
@@ -18,18 +15,70 @@ const PILLARS = [
   { icon: Shield, title: "Discipline", description: "Rigueur sur et en dehors du terrain pour former de vrais compétiteurs." },
 ];
 
-const TEAMS = [
-  { name: "U7", age: "5-6 ans", training: "Mer & Sam — 10h-11h", gradient: "from-pink-500 to-rose-500" },
-  { name: "U9", age: "7-8 ans", training: "Mer & Sam — 11h-12h30", gradient: "from-purple-500 to-violet-500" },
-  { name: "U11", age: "9-10 ans", training: "Lun, Mer, Ven — 16h-17h30", gradient: "from-blue-500 to-cyan-500" },
-  { name: "U13", age: "11-12 ans", training: "Lun, Mer, Ven — 17h-18h30", gradient: "from-emerald-500 to-green-500" },
-  { name: "U15", age: "13-14 ans", training: "Mar, Jeu, Sam — 17h-18h30", gradient: "from-amber-500 to-orange-500" },
-  { name: "U17", age: "15-16 ans", training: "Mar, Jeu, Sam — 18h30-20h", gradient: "from-red-500 to-rose-500" },
-];
+interface ScheduleSlot {
+  category: string;
+  time: string;
+  pitch: string;
+}
 
+interface ScheduleData {
+  days: string;
+  slots: ScheduleSlot[];
+}
 
+const CATEGORY_GRADIENTS: Record<string, string> = {
+  "U5/U7": "from-pink-500 to-rose-500",
+  "U7": "from-pink-500 to-rose-500",
+  "U9": "from-purple-500 to-violet-500",
+  "U11": "from-blue-500 to-cyan-500",
+  "U11F-U15F": "from-teal-500 to-emerald-500",
+  "U13": "from-emerald-500 to-green-500",
+  "U15": "from-amber-500 to-orange-500",
+  "U17": "from-red-500 to-rose-500",
+  "U18": "from-red-600 to-red-500",
+};
+
+const CATEGORY_AGES: Record<string, string> = {
+  "U5/U7": "5-6 ans",
+  "U7": "5-6 ans",
+  "U9": "7-8 ans",
+  "U11": "9-10 ans",
+  "U11F-U15F": "Filles 9-14 ans",
+  "U13": "11-12 ans",
+  "U15": "13-14 ans",
+  "U17": "15-16 ans",
+  "U18": "17-18 ans",
+};
+
+const DEFAULT_SCHEDULE: ScheduleData = {
+  days: "Mercredi - Vendredi",
+  slots: [
+    { category: "U5/U7", time: "15h45 - 17h00", pitch: "Terrain 1" },
+    { category: "U9", time: "15h45 - 17h00", pitch: "Terrain 2" },
+    { category: "U11", time: "16h45 - 18h00", pitch: "Terrain 1" },
+    { category: "U11F-U15F", time: "16h45 - 18h00", pitch: "Terrain 2" },
+    { category: "U13", time: "17h45 - 19h00", pitch: "Terrain 1" },
+    { category: "U15", time: "17h45 - 19h00", pitch: "Terrain 2" },
+  ],
+};
+
+const MAPS_LINK = "https://maps.app.goo.gl/oWC9jWktqMe4ye8a7";
 
 export default function AcademyPage() {
+  const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
+
+  useEffect(() => {
+    async function fetchSchedule() {
+      const { data } = await supabase.from("settings").select("key, value").eq("key", "academy_schedule").single();
+      if (data?.value) {
+        try {
+          const parsed = JSON.parse(data.value);
+          setSchedule(parsed);
+        } catch { /* use default */ }
+      }
+    }
+    fetchSchedule();
+  }, []);
   return (
     <main className="overflow-hidden">
       <Navigation />
@@ -109,38 +158,83 @@ export default function AcademyPage() {
         </div>
       </section>
 
-      {/* Teams */}
+      {/* Training Schedule */}
       <section id="equipes" className="bg-fiver-black py-20">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="mb-14 text-center">
             <span className="inline-block rounded-full bg-fiver-green/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-fiver-green">
-              Nos Équipes
+              Programme
             </span>
             <h2 className="mt-4 font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-white md:text-5xl">
-              Catégories
+              Entraînements
             </h2>
             <p className="mx-auto mt-3 max-w-lg text-sm text-white/50">
-              De l&apos;initiation chez les jeunes à la compétition chez les seniors, trouvez votre équipe.
+              Jours d&apos;entraînement : <strong className="text-fiver-green">{schedule.days}</strong>
             </p>
           </div>
-          <div className="grid gap-6 md:grid-cols-2">
-            {TEAMS.map((team) => (
-              <div key={team.name} className="stagger-card group relative overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] transition-all duration-300 hover:border-fiver-green/20 hover:bg-white/[0.04]">
-                <div className={`absolute left-0 top-0 h-full w-1.5 bg-gradient-to-b ${team.gradient}`} />
-                <div className="flex items-center gap-5 p-6 pl-7">
-                  <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${team.gradient} shadow-lg transition-transform group-hover:scale-105`}>
-                    <span className="font-[var(--font-heading)] text-xl font-bold text-white">{team.name}</span>
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-[var(--font-heading)] text-xl font-bold uppercase tracking-wide text-white">{team.name}</h3>
-                    <p className="mt-0.5 text-sm text-white/50">{team.age}</p>
-                    <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-fiver-green">
-                      <Calendar className="h-3.5 w-3.5" /> {team.training}
+          <div className="grid gap-4 md:grid-cols-2">
+            {schedule.slots.map((slot, i) => {
+              const gradient = CATEGORY_GRADIENTS[slot.category] || "from-gray-500 to-gray-400";
+              const age = CATEGORY_AGES[slot.category] || "";
+              return (
+                <div key={i} className="stagger-card group relative overflow-hidden rounded-lg border border-white/5 bg-white/[0.02] transition-all duration-300 hover:border-fiver-green/20 hover:bg-white/[0.04]">
+                  <div className={`absolute left-0 top-0 h-full w-1.5 bg-gradient-to-b ${gradient}`} />
+                  <div className="flex items-center gap-5 p-6 pl-7">
+                    <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} shadow-lg transition-transform group-hover:scale-105`}>
+                      <span className="font-[var(--font-heading)] text-lg font-bold text-white leading-tight text-center">{slot.category}</span>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-[var(--font-heading)] text-xl font-bold uppercase tracking-wide text-white">{slot.category}</h3>
+                      {age && <p className="mt-0.5 text-sm text-white/50">{age}</p>}
+                      <div className="mt-3 flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-fiver-green">
+                          <Calendar className="h-3.5 w-3.5" /> {slot.time}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-white/40">
+                          <MapPin className="h-3.5 w-3.5" /> {slot.pitch}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Location / Google Maps */}
+      <section className="bg-background py-20">
+        <div className="mx-auto max-w-7xl px-4 lg:px-8">
+          <div className="mb-14 text-center">
+            <span className="inline-block rounded-full bg-fiver-green/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-fiver-green">
+              Localisation
+            </span>
+            <h2 className="mt-4 font-[var(--font-heading)] text-3xl font-bold uppercase tracking-tight text-foreground md:text-5xl">
+              Nous trouver
+            </h2>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border">
+            <iframe
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3860.3!2d-15.9786!3d18.0869!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMTjCsDA1JzEyLjgiTiAxNcKwNTgnNDMuMCJX!5e0!3m2!1sfr!2smr!4v1710000000000!5m2!1sfr!2smr"
+              width="100%"
+              height="400"
+              style={{ border: 0 }}
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              className="w-full"
+            />
+          </div>
+          <div className="mt-6 text-center">
+            <a
+              href={MAPS_LINK}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 rounded-sm bg-fiver-green px-6 py-3 text-sm font-bold uppercase tracking-wide text-fiver-black shadow-lg shadow-fiver-green/20 transition-transform hover:scale-105"
+            >
+              <ExternalLink className="h-4 w-4" /> Ouvrir dans Google Maps
+            </a>
           </div>
         </div>
       </section>

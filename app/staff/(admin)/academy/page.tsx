@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Plus, Search, Check, X as XIcon, AlertTriangle, Shield, Edit, Eye, Calendar as CalIcon } from "lucide-react";
+import { Plus, Search, Check, X as XIcon, AlertTriangle, Shield, Edit, Eye, Calendar as CalIcon, Save, Trash2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -69,6 +69,71 @@ export default function AcademyManagementPage() {
   }, []);
 
   useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
+
+  // Schedule editor
+  interface ScheduleSlot { category: string; time: string; pitch: string; }
+  interface ScheduleData { days: string; slots: ScheduleSlot[]; }
+
+  const DEFAULT_SCHEDULE: ScheduleData = {
+    days: "Mercredi - Vendredi",
+    slots: [
+      { category: "U5/U7", time: "15h45 - 17h00", pitch: "Terrain 1" },
+      { category: "U9", time: "15h45 - 17h00", pitch: "Terrain 2" },
+      { category: "U11", time: "16h45 - 18h00", pitch: "Terrain 1" },
+      { category: "U11F-U15F", time: "16h45 - 18h00", pitch: "Terrain 2" },
+      { category: "U13", time: "17h45 - 19h00", pitch: "Terrain 1" },
+      { category: "U15", time: "17h45 - 19h00", pitch: "Terrain 2" },
+    ],
+  };
+
+  const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
+  const [scheduleSaved, setScheduleSaved] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
+  useEffect(() => {
+    async function fetchSchedule() {
+      const { data } = await supabase.from("settings").select("key, value").eq("key", "academy_schedule").single();
+      if (data?.value) {
+        try {
+          setSchedule(JSON.parse(data.value));
+        } catch { /* use default */ }
+      }
+    }
+    fetchSchedule();
+  }, []);
+
+  function updateSlot(index: number, field: keyof ScheduleSlot, value: string) {
+    setSchedule(prev => ({
+      ...prev,
+      slots: prev.slots.map((s, i) => i === index ? { ...s, [field]: value } : s),
+    }));
+  }
+
+  function addSlot() {
+    setSchedule(prev => ({
+      ...prev,
+      slots: [...prev.slots, { category: "", time: "", pitch: "Terrain 1" }],
+    }));
+  }
+
+  function removeSlot(index: number) {
+    setSchedule(prev => ({
+      ...prev,
+      slots: prev.slots.filter((_, i) => i !== index),
+    }));
+  }
+
+  async function saveSchedule() {
+    const value = JSON.stringify(schedule);
+    const { data } = await supabase.from("settings").select("key").eq("key", "academy_schedule").limit(1);
+    if (data && data.length > 0) {
+      await supabase.from("settings").update({ value }).eq("key", "academy_schedule");
+    } else {
+      await supabase.from("settings").insert({ key: "academy_schedule", value });
+    }
+    setScheduleSaved(true);
+    setTimeout(() => setScheduleSaved(false), 2000);
+  }
 
   const filtered = useMemo(() => {
     return players.filter(p => {
@@ -156,6 +221,64 @@ export default function AcademyManagementPage() {
           <p className="text-xs uppercase tracking-wide text-red-400/60">Licences expirées</p>
           <p className="mt-1 font-[var(--font-heading)] text-2xl font-bold text-red-400">{expiredLicenses}</p>
         </div>
+      </div>
+
+      {/* Training Schedule Editor */}
+      <div className="mb-6 rounded-lg border border-white/5 bg-white/[0.02]">
+        <button onClick={() => setScheduleOpen(!scheduleOpen)}
+          className="flex w-full items-center justify-between px-5 py-4 text-left">
+          <div className="flex items-center gap-3">
+            <CalIcon className="h-5 w-5 text-fiver-green" />
+            <div>
+              <h2 className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Programme d&apos;entraînement</h2>
+              <p className="text-xs text-white/40">Modifier les jours, horaires et catégories affichés sur le site</p>
+            </div>
+          </div>
+          <ChevronRight className={cn("h-5 w-5 text-white/30 transition-transform", scheduleOpen && "rotate-90")} />
+        </button>
+        {scheduleOpen && (
+          <div className="border-t border-white/5 px-5 py-5">
+            <div className="mb-5">
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Jours d&apos;entraînement</label>
+              <input type="text" value={schedule.days} onChange={(e) => setSchedule(prev => ({ ...prev, days: e.target.value }))}
+                placeholder="Ex: Mercredi - Vendredi" className={inputClass} />
+            </div>
+            <div className="mb-3 flex flex-col gap-3">
+              {schedule.slots.map((slot, i) => (
+                <div key={i} className="flex flex-col gap-2 rounded-sm border border-white/5 bg-white/[0.02] p-3 sm:flex-row sm:items-center sm:gap-3">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-white/30">Catégorie</label>
+                    <input type="text" value={slot.category} onChange={(e) => updateSlot(i, "category", e.target.value)}
+                      placeholder="Ex: U11" className={inputClass} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-white/30">Horaire</label>
+                    <input type="text" value={slot.time} onChange={(e) => updateSlot(i, "time", e.target.value)}
+                      placeholder="Ex: 15h45 - 17h00" className={inputClass} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-white/30">Terrain</label>
+                    <select value={slot.pitch} onChange={(e) => updateSlot(i, "pitch", e.target.value)} className={inputClass}>
+                      <option value="Terrain 1" className="bg-[#161616]">Terrain 1</option>
+                      <option value="Terrain 2" className="bg-[#161616]">Terrain 2</option>
+                    </select>
+                  </div>
+                  <button onClick={() => removeSlot(i)} className="mt-4 self-end rounded-sm p-2 text-red-400/60 hover:bg-red-500/10 hover:text-red-400 sm:mt-0" title="Supprimer">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button onClick={addSlot} className="flex items-center gap-1.5 rounded-sm border border-dashed border-white/10 px-3 py-2 text-xs text-white/40 hover:border-white/20 hover:text-white/60">
+                <Plus className="h-3.5 w-3.5" /> Ajouter un créneau
+              </button>
+              <button onClick={saveSchedule} className="flex items-center justify-center gap-2 rounded-sm bg-fiver-green px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
+                {scheduleSaved ? (<><Check className="h-4 w-4" /> Sauvegardé !</>) : (<><Save className="h-4 w-4" /> Enregistrer le programme</>)}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
