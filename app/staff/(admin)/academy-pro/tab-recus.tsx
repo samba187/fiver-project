@@ -148,7 +148,19 @@ export function TabRecus({ registrations }: { registrations: Registration[] }) {
       let pdfUrlLine = "";
       if (!uploadError) {
         const { data } = supabase.storage.from("academy_receipts").getPublicUrl(fileName);
-        pdfUrlLine = data.publicUrl;
+        let finalUrl = data.publicUrl;
+        
+        // Raccourcir l'URL pour faire plus propre via TinyURL
+        try {
+          const shortRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(finalUrl)}`);
+          if (shortRes.ok) {
+            finalUrl = await shortRes.text();
+          }
+        } catch (e) {
+          console.warn("Erreur raccourcissement URL", e);
+        }
+        
+        pdfUrlLine = finalUrl;
       } else {
         console.error("Upload error:", uploadError);
       }
