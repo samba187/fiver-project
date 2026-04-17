@@ -26,8 +26,7 @@ import { supabase } from "@/lib/supabase";
 const SIDEBAR_LINKS = [
   { href: "/staff/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
   { href: "/staff/reservations", label: "Réservations", icon: CalendarCheck },
-  { href: "/staff/academy", label: "Academy", icon: Medal },
-  { href: "/staff/loisirs", label: "Centre Loisirs", icon: Star },
+  { href: "/staff/academy-pro", label: "Academy & Loisirs", icon: ClipboardList },
   { href: "/staff/contacts", label: "Messages", icon: MessageCircle },
   { href: "/staff/terrains", label: "Terrains", icon: LayoutGrid },
   { href: "/staff/clients", label: "Clients", icon: Users },

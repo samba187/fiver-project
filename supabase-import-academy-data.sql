@@ -1,0 +1,42 @@
+-- ============================================================
+-- IMPORT DES 50 JOUEURS DEPUIS LE FICHIER EXCEL
+-- À exécuter APRÈS la migration academy_registrations
+-- ============================================================
+
+INSERT INTO academy_registrations (nom, prenom, date_naissance, sexe, telephone_parent, adresse, football, centre_loisirs, categorie_foot, tarif_football, tarif_loisirs, tarif_total, montant_paye, statut_paiement, date_paiement, observations, date_limite_paiement) VALUES
+('SIDIBÉ', 'Younous', '2018-06-20', 'M', '+222 49 83 01 84', 'BASRA', true, false, 'U9', 1750, 0, 1750, 1750, 'paye', '2026-04-10', 'Manque identité', NULL),
+('SIDIBÉ', 'Zackaria', '2016-01-25', 'M', '+222 49 83 01 84', 'BASRA', true, false, 'U11', 1750, 0, 1750, 1750, 'paye', '2026-04-10', 'Manque identité', '2026-03-15'),
+('DIALLO', 'Youssouf', '2015-03-08', 'M', '+222 48 44 07 94', 'ILOT L', true, false, 'U13', 2000, 0, 2000, 2000, 'paye', '2026-04-10', 'manque photo', '2026-04-30'),
+('THIAM', 'Mohamed', '2015-05-14', 'M', '+222 41 53 98 46', 'CITÉ PLAGE', true, false, 'U11', 1000, 0, 1000, 1000, 'partiel', '2026-04-07', 'manque piece payé bankly', '2026-04-05'),
+('THIAM', 'Adama', '2019-11-12', 'M', '+222 44 89 92 74', 'KOSSOVA RYAD', true, false, 'U7', 1000, 0, 1000, 1000, 'partiel', '2026-04-07', 'complet', NULL),
+('KOITA', 'Mohamed', '2017-03-08', 'M', '+222 46 46 65 50', 'CITÉ PLAGE', true, false, 'U11', 0, 0, 0, 0, 'en_attente', NULL, NULL, NULL),
+('KOITA', 'Youba', '2018-08-28', 'M', '+222 46 46 65 51', 'CITÉ PLAGE', true, false, 'U9', 0, 0, 0, 0, 'en_attente', NULL, NULL, NULL),
+('THIAM', 'Binta', '2018-11-22', 'F', '+222 41 53 98 46', 'CITÉ PLAGE', true, false, 'U9', 1000, 0, 0, 1000, 'partiel', '2026-04-07', 'manque tt payé bankily', NULL),
+('DIARRA', 'Ibrahim', '2011-08-07', 'M', '+222 41 46 24 13', '6eme EL MINA', true, false, 'U15', 1000, 0, 0, 1000, 'partiel', '2026-04-10', 'manque tt payé bankily', NULL),
+('BA', 'Amadou', '2012-05-09', 'M', '+222 46 33 74 63', 'SAMIA EL MINA', true, false, 'U15', 1000, 0, 0, 1000, 'partiel', '2026-04-08', 'bankily manque identité', NULL),
+('SAKHO', 'Boubou', '2011-08-19', 'M', '+222 49 07 16 53', 'CITÉ PLAGE', true, false, 'U15', 1000, 0, 0, 1000, 'partiel', '2026-04-10', 'cash pas de photo', NULL),
+('DJIGO', 'Cheikh bay', '2015-12-02', 'M', '+222 49 47 01 42', 'CITÉ PLAGE', true, false, 'U11', 0, 0, 0, 0, 'en_attente', NULL, NULL, NULL),
+('BAKAYOKHO', 'Addallah', '2019-03-03', 'M', '+222 42 10 57 44', 'NETEK', false, false, NULL, 0, 0, 0, 0, 'en_attente', NULL, 'pas de payment', NULL),
+('BAKAYOKHO', 'Mohamed', '2021-01-03', 'M', '+222 42 10 57 44', 'NETEK', false, false, NULL, 0, 0, 0, 0, 'en_attente', NULL, 'rien', NULL),
+('NBODJ', 'Babacar', '2017-01-01', 'M', '+222 44 89 97 98', 'CITÉ PLAGE', true, false, 'U11', 1000, 0, 0, 1000, 'partiel', '2026-04-08', 'manque tt', NULL),
+('KANE', 'Alassane', '2020-08-21', 'M', '+222 42 63 50 50', 'EL MINA', true, false, 'U7', 1000, 0, 0, 1000, 'partiel', '2026-04-08', 'manque extrai', NULL),
+('DIALLO', 'Abou', '2012-08-13', 'M', '+222 48 44 07 94', 'ILOT L', true, false, 'U15', 2000, 0, 0, 2000, 'paye', '2026-04-10', NULL, NULL),
+('SOW', 'Mohamed', '2016-08-16', 'M', '+222 44 89 97 98', 'CITÉ PLAGE', true, false, 'U11', 0, 0, 0, 0, 'en_attente', NULL, 'document ok payement ?', NULL),
+('DIALLO', 'Souleymane', '2017-06-10', 'M', '+222 26 31 86 93', 'CITÉ PLAGE', true, false, 'U9', 0, 0, 0, 0, 'en_attente', NULL, 'pas de doc payement ?', NULL),
+('SALL', 'Babe', '2016-10-01', 'M', '+222 46 68 60 61', 'BASRA', false, false, NULL, 0, 0, 0, 0, 'en_attente', NULL, NULL, NULL),
+('SALL', 'Moussa', '2018-10-01', 'M', '+222 46 68 60 61', 'BASRA', false, false, NULL, 0, 0, 0, 0, 'en_attente', NULL, NULL, NULL),
+('KERKOUB', 'Nenime', '2013-10-22', 'M', '+222 47 45 20 20', 'TERVRAGH ZEINA', true, false, 'U13', 2000, 0, 0, 2000, 'paye', '2026-04-05', 'CASH COMPLET', NULL),
+('DIAGANA', 'Bocar', '2018-06-01', 'M', '+222 47 47 77 77', 'CITÉ PLAGE', true, false, 'U9', 2000, 0, 0, 2000, 'paye', '2026-04-05', 'MANQUE PIECS', NULL),
+('BA', 'Mohamed', '2021-11-03', 'M', '+222 47 75 77 22', 'CITÉ PLAGE', true, false, 'U5', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'dit quil a laissé', NULL),
+('BA', 'Amadou', '2017-04-27', 'M', '+222 47 75 77 22', 'CITÉ PLAGE', true, false, 'U9', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'dit quil a laissé', NULL),
+('SIDI MAOULOUD', 'Abdallahi', '2020-05-06', 'M', '+222 36 29 01 29', 'CITÉ PLAGE', true, false, 'U7', 2000, 0, 0, 2000, 'paye', '2026-04-05', 'bankily piece ?', NULL),
+('SY', 'Boubacar', '2018-01-15', 'M', '+222 44 24 22 34', 'BASRA', true, false, 'U9', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'payé masravi pice maquante', NULL),
+('KANOUTÉ', 'Mohamed', '2019-05-27', 'M', '212658200457', 'CITÉ PLAGE', true, false, 'U7', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'manque piece payé bankly', NULL),
+('GUEYE', 'Moussa', '2018-01-10', 'M', '+222 47 32 19 97', 'KOUFA', true, false, 'U9', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'complet', NULL),
+('GUEYE', 'Mademba', '2016-09-11', 'M', '+222 47 32 19 97', 'KOUFA', true, false, 'U11', 1000, 0, 0, 1000, 'partiel', '2026-04-05', NULL, NULL),
+('THIAM', 'Adama', '2019-11-12', 'M', '+222 44 89 92 74', 'PK9', true, false, 'U7', 1000, 0, 0, 1000, 'partiel', '2026-04-05', NULL, NULL),
+('TOURÉ', 'Mohamed', '2020-10-26', 'M', '+222 46 85 01 86', 'SOCOGIM', true, false, 'U7', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'complet', NULL),
+('TOURÉ', 'Ciré', '2017-10-26', 'M', '+222 46 85 01 86', 'SOCOGIM', true, false, 'U9', 1000, 0, 0, 1000, 'partiel', '2026-04-05', 'complet', NULL),
+('SIDIBÉ', 'Amajallah', '2016-01-14', 'F', '+33 6 58 40 25 02', 'BASRA', true, false, 'U11', 1000, 0, 0, 1000, 'partiel', NULL, NULL, NULL),
+('SIDIBÉ', 'Soukaïna', '2021-04-21', 'F', '+33 6 58 40 25 02', 'BASRA', true, false, 'U5', 500, 0, 0, 500, 'partiel', NULL, NULL, NULL),
+('BA', 'Mouhamad', '2015-12-15', 'M', '+222 42 35 84', 'KOUFA', true, false, 'U11', 1750, 0, 0, 1750, 'partiel', NULL, 'payé par bankily', NULL);
