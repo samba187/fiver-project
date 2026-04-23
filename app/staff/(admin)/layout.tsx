@@ -17,8 +17,6 @@ import {
   X,
   BarChart3,
   Trash2,
-  Medal,
-  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";

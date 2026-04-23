@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2, Smartphone, CreditCard, Banknote } from "lucide-react";
+import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2, Smartphone, CreditCard, Repeat, ShoppingCart } from "lucide-react";
 
 const PAYMENT_METHODS = [
   { value: "bankily", label: "Bankily", icon: Smartphone, desc: "Paiement mobile", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
@@ -12,9 +12,10 @@ const PAYMENT_METHODS = [
 
 const STEPS = [
   { id: 1, label: "Date", icon: Calendar },
-  { id: 2, label: "Horaire", icon: Clock },
+  { id: 2, label: "Créneaux", icon: Clock },
   { id: 3, label: "Terrain", icon: LayoutGrid },
-  { id: 4, label: "Infos", icon: User },
+  { id: 4, label: "Récurrence", icon: Repeat },
+  { id: 5, label: "Infos", icon: User },
 ];
 
 const ALL_SLOTS = [
@@ -50,20 +51,41 @@ function getCalendarDays(year: number, month: number) {
   return days;
 }
 
+function formatDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addWeeks(date: Date, weeks: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + weeks * 7);
+  return d;
+}
+
 export function BookingFlow() {
   const [step, setStep] = useState(1);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [selectedPitch, setSelectedPitch] = useState<string | null>(null);
+  const [recurrenceWeeks, setRecurrenceWeeks] = useState(1); // 1 = no recurrence
+  const [maxRecurrenceWeeks, setMaxRecurrenceWeeks] = useState(5);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentType, setPaymentType] = useState<"full" | "deposit">("full");
+  const [depositAmount, setDepositAmount] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Dynamic settings from Supabase
+  // Auth state
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Dynamic settings
   const [openHour, setOpenHour] = useState(16);
   const [closeHour, setCloseHour] = useState(24);
   const [priceWeekday, setPriceWeekday] = useState(10000);
@@ -71,6 +93,10 @@ export function BookingFlow() {
   const [closedDates, setClosedDates] = useState<string[]>([]);
   const [pitchStatuses, setPitchStatuses] = useState<Record<string, string>>({ "Terrain 1": "available", "Terrain 2": "available" });
   const [bookedSlots, setBookedSlots] = useState<Set<string>>(new Set());
+
+  // Conflict check for recurrence
+  const [recurrenceConflicts, setRecurrenceConflicts] = useState<string[]>([]);
+  const [checkingRecurrence, setCheckingRecurrence] = useState(false);
 
   const today = new Date();
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -83,6 +109,29 @@ export function BookingFlow() {
     return isWeekend ? priceWeekend : priceWeekday;
   }, [selectedDate, priceWeekday, priceWeekend]);
 
+  const totalSessions = selectedSlots.length * recurrenceWeeks;
+  const totalPrice = currentPrice * totalSessions;
+
+  // Check auth
+  useEffect(() => {
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (data.user) {
+        const email = data.user.email?.toLowerCase() || "";
+        if (!email.includes("admin") && !email.includes("staff")) {
+          setUserId(data.user.id);
+          setIsLoggedIn(true);
+          const { data: profile } = await supabase.from("user_profiles").select("name, phone, email").eq("id", data.user.id).single();
+          if (profile) {
+            setName(profile.name);
+            setPhone(profile.phone);
+            setEmail(profile.email);
+          }
+        }
+      }
+    });
+  }, []);
+
+  // Fetch settings
   useEffect(() => {
     async function fetchSettings() {
       const { data } = await supabase.from("settings").select("key, value");
@@ -94,6 +143,7 @@ export function BookingFlow() {
         if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
         if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
         if (map.closed_dates) setClosedDates(map.closed_dates.split(",").map((d: string) => d.trim()));
+        if (map.max_recurrence_weeks) setMaxRecurrenceWeeks(parseInt(map.max_recurrence_weeks));
         setPitchStatuses({
           "Terrain 1": map.pitch_1_status || "available",
           "Terrain 2": map.pitch_2_status || "available",
@@ -103,13 +153,11 @@ export function BookingFlow() {
     fetchSettings();
   }, [selectedDate]);
 
+  // Fetch booked slots for selected date
   useEffect(() => {
     async function fetchBooked() {
       if (!selectedDate) return;
-      const y = selectedDate.getFullYear();
-      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-      const d = String(selectedDate.getDate()).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
+      const dateStr = formatDateStr(selectedDate);
       const { data } = await supabase.from("reservations").select("time, pitch").eq("date", dateStr).neq("status", "cancelled");
       if (data) {
         const set = new Set<string>();
@@ -120,46 +168,85 @@ export function BookingFlow() {
     fetchBooked();
   }, [selectedDate]);
 
-  const availableSlots = useMemo(() => {
-    if (selectedDate) {
-      const y = selectedDate.getFullYear();
-      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-      const d = String(selectedDate.getDate()).padStart(2, "0");
-      const dateStr = `${y}-${m}-${d}`;
-      if (closedDates.includes(dateStr)) return [];
+  // Check recurrence conflicts
+  const checkRecurrenceConflicts = useCallback(async () => {
+    if (!selectedDate || !selectedPitch || recurrenceWeeks <= 1 || selectedSlots.length === 0) {
+      setRecurrenceConflicts([]);
+      return;
+    }
+    setCheckingRecurrence(true);
+    const conflicts: string[] = [];
+
+    for (let w = 1; w < recurrenceWeeks; w++) {
+      const futureDate = addWeeks(selectedDate, w);
+      const dateStr = formatDateStr(futureDate);
+
+      const { data } = await supabase
+        .from("reservations")
+        .select("time, pitch")
+        .eq("date", dateStr)
+        .eq("pitch", selectedPitch)
+        .neq("status", "cancelled");
+
+      if (data) {
+        for (const slot of selectedSlots) {
+          if (data.some(r => r.time === slot)) {
+            conflicts.push(`${futureDate.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" })} — ${slot}`);
+          }
+        }
+      }
     }
 
+    setRecurrenceConflicts(conflicts);
+    setCheckingRecurrence(false);
+  }, [selectedDate, selectedPitch, recurrenceWeeks, selectedSlots]);
+
+  useEffect(() => {
+    checkRecurrenceConflicts();
+  }, [checkRecurrenceConflicts]);
+
+  const availableSlots = useMemo(() => {
+    if (selectedDate) {
+      const dateStr = formatDateStr(selectedDate);
+      if (closedDates.includes(dateStr)) return [];
+    }
     return ALL_SLOTS.filter((s) => {
       if (closeHour <= openHour) {
         return s.startHour >= openHour || s.startHour < closeHour;
       }
       return s.startHour >= openHour && s.startHour < closeHour;
     }).map((s) => ({ time: s.time }));
-  }, [openHour, closeHour]);
+  }, [openHour, closeHour, closedDates, selectedDate]);
 
   const availablePitches = useMemo(() => [
     { id: "Terrain 1", available: pitchStatuses["Terrain 1"] === "available" },
     { id: "Terrain 2", available: pitchStatuses["Terrain 2"] === "available" },
   ], [pitchStatuses]);
 
+  function toggleSlot(time: string) {
+    setSelectedSlots((prev) =>
+      prev.includes(time) ? prev.filter(s => s !== time) : [...prev, time]
+    );
+  }
+
   function handlePrev() { if (step > 1) setStep(step - 1); }
   function handleReset() {
-    setStep(1); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
-    setName(""); setPhone(""); setEmail(""); setPaymentMethod(""); setConfirmed(false); setError("");
+    setStep(1); setSelectedDate(null); setSelectedSlots([]); setSelectedPitch(null);
+    setRecurrenceWeeks(1); setPaymentMethod(""); setPaymentType("full"); setDepositAmount("");
+    setConfirmed(false); setError("");
+    if (!isLoggedIn) { setName(""); setPhone(""); setEmail(""); }
   }
   function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(viewMonth - 1); }
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
 
   async function handleConfirm() {
-    if (!selectedDate || !selectedSlot || !selectedPitch || !paymentMethod) return;
-    
-    // Strict input validation
+    if (!selectedDate || selectedSlots.length === 0 || !selectedPitch || !paymentMethod) return;
+
     const trimmedName = name.trim();
     if (trimmedName.length < 2 || trimmedName.length > 50) {
       setError("Le nom doit contenir entre 2 et 50 caractères.");
       return;
     }
-    
     const cleanPhone = phone.replace(/\D/g, "");
     const phoneRegex = /^[234][0-9]{7}$/;
     if (!phoneRegex.test(cleanPhone)) {
@@ -167,71 +254,96 @@ export function BookingFlow() {
       return;
     }
 
+    if (recurrenceConflicts.length > 0) {
+      setError("Il y a des conflits de créneaux pour la récurrence. Corrigez-les avant de confirmer.");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
-    const y = selectedDate.getFullYear();
-    const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-    const d = String(selectedDate.getDate()).padStart(2, "0");
-    const dateStr = `${y}-${m}-${d}`;
+
     try {
       // Check if client is banned
       const { data: clientCheck } = await supabase.from("clients").select("is_banned").eq("phone", phone).single();
       if (clientCheck?.is_banned) {
-        setError("Votre numéro de téléphone est bloqué. Veuillez contacter l'administration de Fiveur Arena.");
-        setSubmitting(false);
-        return;
-      }
-      // Check if slot is still available before inserting
-      const { data: existing } = await supabase
-        .from("reservations")
-        .select("id")
-        .eq("date", dateStr)
-        .eq("time", selectedSlot)
-        .eq("pitch", selectedPitch)
-        .neq("status", "cancelled")
-        .limit(1);
-      if (existing && existing.length > 0) {
-        setError("Ce créneau vient d'être réservé par quelqu'un d'autre. Veuillez en choisir un autre.");
+        setError("Votre numéro est bloqué. Contactez l'administration de Fiveur Arena.");
         setSubmitting(false);
         return;
       }
 
-      const { error: dbError } = await supabase.from("reservations").insert({
-        name, phone, email, date: dateStr, time: selectedSlot, pitch: selectedPitch, status: "pending",
-        payment_method: paymentMethod, total_price: currentPrice, amount_paid: 0, payment_confirmed: false,
-      });
+      const recurrenceGroup = recurrenceWeeks > 1 ? crypto.randomUUID() : null;
+      const declaredDeposit = paymentType === "deposit" ? parseInt(depositAmount) || 0 : totalPrice;
+
+      // Create all reservations
+      const inserts = [];
+      for (let w = 0; w < recurrenceWeeks; w++) {
+        const date = addWeeks(selectedDate, w);
+        const dateStr = formatDateStr(date);
+
+        for (const slot of selectedSlots) {
+          // Verify slot still available
+          const { data: existing } = await supabase
+            .from("reservations").select("id")
+            .eq("date", dateStr).eq("time", slot).eq("pitch", selectedPitch)
+            .neq("status", "cancelled").limit(1);
+
+          if (existing && existing.length > 0) {
+            setError(`Le créneau ${slot} du ${date.toLocaleDateString("fr-FR")} est déjà pris.`);
+            setSubmitting(false);
+            return;
+          }
+
+          inserts.push({
+            name: trimmedName, phone: cleanPhone, email, date: dateStr, time: slot,
+            pitch: selectedPitch, status: "pending",
+            payment_method: paymentMethod, total_price: currentPrice,
+            amount_paid: 0, payment_confirmed: false,
+            user_id: userId, is_recurring: recurrenceWeeks > 1,
+            recurrence_group: recurrenceGroup,
+            deposit_amount: Math.round(declaredDeposit / totalSessions),
+          });
+        }
+      }
+
+      const { error: dbError } = await supabase.from("reservations").insert(inserts);
       if (dbError) { setError("Erreur lors de la réservation."); setSubmitting(false); return; }
 
-      // Trigger automatic Email notification to admin
+      // Notify admin
       try {
         fetch("/api/notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-             type: 'reservation', 
-             data: { name, phone, email, date: dateStr, time: selectedSlot, pitch: selectedPitch, amount: currentPrice },
-             origin: window.location.origin
-          })
+          body: JSON.stringify({
+            type: "reservation",
+            data: { name: trimmedName, phone: cleanPhone, email, date: formatDateStr(selectedDate), time: selectedSlots.join(", "), pitch: selectedPitch, amount: totalPrice, sessions: totalSessions, recurrence: recurrenceWeeks > 1 },
+            origin: window.location.origin,
+          }),
         });
-      } catch (err) {
-        console.error("Failed to trigger Email notification", err);
-      }
+      } catch (err) { console.error("Notify error", err); }
 
-      // Update local bookedSlots so the slot is immediately blocked
-      setBookedSlots((prev) => new Set(prev).add(`${selectedPitch}:${selectedSlot}`));
+      // Update bookedSlots
+      setBookedSlots((prev) => {
+        const next = new Set(prev);
+        selectedSlots.forEach(s => next.add(`${selectedPitch}:${s}`));
+        return next;
+      });
 
-      const { data: existingClient } = await supabase.from("clients").select("id, total_bookings").eq("phone", phone).single();
+      // Upsert client record
+      const { data: existingClient } = await supabase.from("clients").select("id, total_bookings").eq("phone", cleanPhone).single();
       if (existingClient) {
-        await supabase.from("clients").update({ total_bookings: existingClient.total_bookings + 1, last_booking: dateStr, name }).eq("id", existingClient.id);
+        await supabase.from("clients").update({ total_bookings: existingClient.total_bookings + totalSessions, last_booking: formatDateStr(selectedDate), name: trimmedName }).eq("id", existingClient.id);
       } else {
-        await supabase.from("clients").insert({ name, phone, total_bookings: 1, last_booking: dateStr });
+        await supabase.from("clients").insert({ name: trimmedName, phone: cleanPhone, total_bookings: totalSessions, last_booking: formatDateStr(selectedDate) });
       }
+
       setConfirmed(true);
     } catch { setError("Erreur de connexion."); }
     setSubmitting(false);
   }
 
+  // ─── CONFIRMED VIEW ──────────────────────────────────
   if (confirmed) {
+    const declaredDeposit = paymentType === "deposit" ? parseInt(depositAmount) || 0 : totalPrice;
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-fiver-green">
@@ -239,23 +351,26 @@ export function BookingFlow() {
         </div>
         <h3 className="font-[var(--font-heading)] text-2xl font-bold uppercase text-foreground">Réservation enregistrée !</h3>
         <p className="mt-3 text-muted-foreground">
-          {name}, votre terrain est réservé pour le {selectedDate?.toLocaleDateString("fr-FR")} de {selectedSlot} sur {selectedPitch}.
+          {name}, {totalSessions} créneau{totalSessions > 1 ? "x" : ""} réservé{totalSessions > 1 ? "s" : ""} sur {selectedPitch}.
         </p>
-        <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left">
+        {recurrenceWeeks > 1 && (
+          <p className="mt-1 text-xs text-muted-foreground/70">Récurrence : {recurrenceWeeks} semaines à partir du {selectedDate?.toLocaleDateString("fr-FR")}</p>
+        )}
+        <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
           <p className="mb-3 text-sm text-muted-foreground">
-            Pour confirmer votre créneau, veuillez nous envoyer la capture d&apos;écran de votre paiement de <strong className="text-foreground">{currentPrice.toLocaleString()} MRU</strong> sur WhatsApp.
+            Envoyez la capture d&apos;écran de votre paiement de <strong className="text-foreground">{declaredDeposit.toLocaleString()} MRU{paymentType === "deposit" ? " (acompte)" : ""}</strong> sur WhatsApp.
           </p>
-          <a
-            href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour le ${selectedPitch} de ${selectedSlot}.`)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors"
-          >
-            Envoyer mon reçu Bankily
+          {paymentType === "deposit" && (
+            <p className="mb-3 text-xs text-yellow-500/90">Reste à payer : {(totalPrice - declaredDeposit).toLocaleString()} MRU</p>
+          )}
+          <a href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlots.join(", ")}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
+            target="_blank" rel="noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors">
+            Envoyer mon reçu {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}
           </a>
         </div>
-        <p className="mt-4 text-xs text-muted-foreground">Demande créée le {new Date().toLocaleDateString('fr-FR')} à {new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}.</p>
+        <p className="mt-4 text-xs text-muted-foreground">Demande créée le {new Date().toLocaleDateString("fr-FR")} à {new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.</p>
         <button onClick={handleReset} className="mt-6 rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
           Nouvelle réservation
         </button>
@@ -263,31 +378,31 @@ export function BookingFlow() {
     );
   }
 
+  // ─── MAIN FLOW ──────────────────────────────────────
   return (
     <div>
       {/* Step Indicator */}
       <div className="mb-8 overflow-x-auto px-2">
-        <div className="flex items-center justify-center gap-1 md:gap-3">
+        <div className="flex items-center justify-center gap-1 md:gap-2">
           {STEPS.map((s, i) => (
-            <div key={s.id} className="flex shrink-0 items-center gap-1 md:gap-3">
-              <button
-                onClick={() => { if (s.id < step) setStep(s.id); }}
+            <div key={s.id} className="flex shrink-0 items-center gap-1 md:gap-2">
+              <button onClick={() => { if (s.id < step) setStep(s.id); }}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors md:px-4 md:py-2 md:text-xs",
+                  "flex items-center gap-1 rounded-full px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors md:px-3 md:py-2 md:text-xs",
                   step === s.id ? "bg-fiver-green text-fiver-black" : s.id < step ? "bg-fiver-green/20 text-fiver-green" : "bg-secondary text-muted-foreground"
-                )}
-              >
+                )}>
                 <s.icon className="h-3.5 w-3.5 md:h-4 md:w-4" />
                 <span className="hidden sm:inline">{s.label}</span>
               </button>
-              {i < STEPS.length - 1 && <div className={cn("h-px w-4 md:w-8", s.id < step ? "bg-fiver-green" : "bg-border")} />}
+              {i < STEPS.length - 1 && <div className={cn("h-px w-3 md:w-6", s.id < step ? "bg-fiver-green" : "bg-border")} />}
             </div>
           ))}
         </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm backdrop-blur-sm sm:p-8">
-        {/* Step 1: Date */}
+
+        {/* ─── Step 1: Date ────────────────── */}
         {step === 1 && (
           <div className="animate-step">
             <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez une date</h3>
@@ -303,21 +418,21 @@ export function BookingFlow() {
                   if (day === null) return <div key={`empty-${idx}`} />;
                   const date = new Date(viewYear, viewMonth, day);
                   const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                  const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const dateStr = formatDateStr(date);
                   const isClosed = closedDates.includes(dateStr);
                   const isDisabled = isPast || isClosed;
                   const isSelected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === viewMonth && selectedDate.getFullYear() === viewYear;
                   const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
                   return (
-                    <button key={day} disabled={isDisabled} onClick={() => { setSelectedDate(date); setTimeout(() => setStep(2), 200); }}
+                    <button key={day} disabled={isDisabled}
+                      onClick={() => { setSelectedDate(date); setSelectedSlots([]); setTimeout(() => setStep(2), 200); }}
                       className={cn(
                         "aspect-square rounded-sm text-sm font-medium transition-colors",
                         isDisabled ? "cursor-not-allowed text-muted-foreground/30 opacity-50" : "text-foreground hover:bg-fiver-green/10",
                         isClosed && !isPast && "bg-red-500/5 text-red-500 line-through",
                         isSelected && "bg-fiver-green text-fiver-black",
                         isToday && !isSelected && !isDisabled && "ring-1 ring-fiver-green/50"
-                      )}
-                    >{day}</button>
+                      )}>{day}</button>
                   );
                 })}
               </div>
@@ -325,56 +440,80 @@ export function BookingFlow() {
           </div>
         )}
 
-        {/* Step 2: Time Slots */}
+        {/* ─── Step 2: Multi Time Slots ────── */}
         {step === 2 && (
           <div className="animate-step">
-            <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez un créneau</h3>
+            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez vos créneaux</h3>
+            <p className="mb-6 text-center text-xs text-muted-foreground">Vous pouvez sélectionner plusieurs créneaux</p>
+
             {availableSlots.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-12">Aucun créneau disponible pour cette date.</p>
             ) : (
-              <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
-                {availableSlots.map((slot) => {
-                  const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
-                  const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
-                  const fullyBooked = pitch1Booked && pitch2Booked;
-                  const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
+              <>
+                <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
+                  {availableSlots.map((slot) => {
+                    const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
+                    const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
+                    const fullyBooked = pitch1Booked && pitch2Booked;
+                    const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
+                    const isSelected = selectedSlots.includes(slot.time);
 
-                  return (
-                    <button key={slot.time} disabled={fullyBooked}
-                      onClick={() => { if (!fullyBooked) { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); } }}
-                      className={cn(
-                        "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors border border-transparent",
-                        fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through",
-                        !fullyBooked && selectedSlot !== slot.time && "bg-secondary/50 text-foreground hover:border-fiver-green/50 hover:bg-fiver-green/5",
-                        selectedSlot === slot.time && "bg-fiver-green text-fiver-black"
-                      )}
-                    >
-                      {slot.time}
-                      {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: 'none' }}>Complet</span>}
-                      {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
+                    return (
+                      <button key={slot.time} disabled={fullyBooked}
+                        onClick={() => { if (!fullyBooked) toggleSlot(slot.time); }}
+                        className={cn(
+                          "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors border-2",
+                          fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through border-transparent",
+                          !fullyBooked && !isSelected && "bg-secondary/50 text-foreground hover:border-fiver-green/50 hover:bg-fiver-green/5 border-transparent",
+                          isSelected && "bg-fiver-green/10 text-fiver-green border-fiver-green"
+                        )}>
+                        <div className="flex items-center justify-between">
+                          <span>{slot.time}</span>
+                          {isSelected && <Check className="h-4 w-4 text-fiver-green" />}
+                        </div>
+                        {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: "none" }}>Complet</span>}
+                        {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selectedSlots.length > 0 && (
+                  <div className="mt-6 flex flex-col items-center gap-3">
+                    <div className="flex items-center gap-2 rounded-full bg-fiver-green/10 border border-fiver-green/20 px-4 py-2 text-sm font-medium text-fiver-green">
+                      <ShoppingCart className="h-4 w-4" />
+                      {selectedSlots.length} créneau{selectedSlots.length > 1 ? "x" : ""} sélectionné{selectedSlots.length > 1 ? "s" : ""}
+                    </div>
+                    <button onClick={() => setStep(3)}
+                      className="rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
+                      Continuer
                     </button>
-                  );
-                })}
-              </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {/* Step 3: Pitch */}
+        {/* ─── Step 3: Pitch ──────────────── */}
         {step === 3 && (
           <div className="animate-step">
             <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez votre terrain</h3>
             <div className="mx-auto flex max-w-md flex-col gap-4 sm:flex-row">
               {availablePitches.map((pitch) => {
-                const isBooked = selectedSlot ? bookedSlots.has(`${pitch.id}:${selectedSlot}`) : false;
-                const canSelect = pitch.available && !isBooked;
+                // Check if ALL selected slots are available on this pitch
+                const allSlotsAvailable = selectedSlots.every(slot => !bookedSlots.has(`${pitch.id}:${slot}`));
+                const canSelect = pitch.available && allSlotsAvailable;
                 return (
-                  <button key={pitch.id} disabled={!canSelect} onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(4), 200); } }}
-                    className={cn("flex-1 rounded-sm border-2 px-6 py-8 text-center transition-colors shadow-sm", !canSelect && "cursor-not-allowed border-secondary bg-secondary text-muted-foreground/40", canSelect && selectedPitch !== pitch.id && "border-border bg-card text-foreground hover:border-fiver-green/50", selectedPitch === pitch.id && "border-fiver-green bg-fiver-green/10 text-foreground")}
-                  >
+                  <button key={pitch.id} disabled={!canSelect}
+                    onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(4), 200); } }}
+                    className={cn("flex-1 rounded-sm border-2 px-6 py-8 text-center transition-colors shadow-sm",
+                      !canSelect && "cursor-not-allowed border-secondary bg-secondary text-muted-foreground/40",
+                      canSelect && selectedPitch !== pitch.id && "border-border bg-card text-foreground hover:border-fiver-green/50",
+                      selectedPitch === pitch.id && "border-fiver-green bg-fiver-green/10 text-foreground")}>
                     <LayoutGrid className={cn("mx-auto mb-3 h-8 w-8", canSelect && selectedPitch === pitch.id ? "text-fiver-green" : canSelect ? "text-muted-foreground" : "text-muted-foreground/30")} />
                     <span className="font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide">{pitch.id}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : isBooked ? "Déjà réservé" : "Disponible"}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : !allSlotsAvailable ? "Créneau(x) pris" : "Disponible"}</span>
                   </button>
                 );
               })}
@@ -382,58 +521,169 @@ export function BookingFlow() {
           </div>
         )}
 
-        {/* Step 4: Details + Confirm */}
+        {/* ─── Step 4: Recurrence ─────────── */}
         {step === 4 && (
+          <div className="animate-step">
+            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Récurrence</h3>
+            <p className="mb-6 text-center text-xs text-muted-foreground">Souhaitez-vous répéter cette réservation chaque semaine ?</p>
+
+            <div className="mx-auto max-w-sm">
+              <div className="mb-6 flex flex-col items-center gap-4">
+                <div className="flex items-center gap-4 w-full">
+                  <button onClick={() => setRecurrenceWeeks(1)}
+                    className={cn("flex-1 rounded-sm border-2 px-4 py-3 text-center text-sm font-medium transition-colors",
+                      recurrenceWeeks === 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
+                    Une seule fois
+                  </button>
+                  <button onClick={() => setRecurrenceWeeks(2)}
+                    className={cn("flex-1 rounded-sm border-2 px-4 py-3 text-center text-sm font-medium transition-colors",
+                      recurrenceWeeks > 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
+                    <Repeat className="mx-auto mb-1 h-4 w-4" /> Récurrent
+                  </button>
+                </div>
+
+                {recurrenceWeeks > 1 && (
+                  <div className="w-full rounded-sm border border-border bg-card p-4">
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      Nombre de semaines : <span className="text-fiver-green">{recurrenceWeeks}</span>
+                    </label>
+                    <input type="range" min={2} max={maxRecurrenceWeeks} value={recurrenceWeeks}
+                      onChange={(e) => setRecurrenceWeeks(parseInt(e.target.value))}
+                      className="w-full accent-[#B2FF00]" />
+                    <div className="mt-2 flex justify-between text-[10px] text-muted-foreground/50">
+                      <span>2 sem.</span>
+                      <span>{maxRecurrenceWeeks} sem.</span>
+                    </div>
+
+                    {checkingRecurrence && <p className="mt-3 text-xs text-white/40 animate-pulse">Vérification des disponibilités...</p>}
+
+                    {recurrenceConflicts.length > 0 && (
+                      <div className="mt-3 rounded-sm bg-red-500/10 border border-red-500/20 p-3">
+                        <p className="text-xs font-bold text-red-400 mb-1">Conflits détectés :</p>
+                        {recurrenceConflicts.map((c, i) => <p key={i} className="text-xs text-red-400/70">• {c}</p>)}
+                      </div>
+                    )}
+
+                    {!checkingRecurrence && recurrenceConflicts.length === 0 && recurrenceWeeks > 1 && (
+                      <p className="mt-3 text-xs text-fiver-green/70">✓ Tous les créneaux sont disponibles</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div className="rounded-sm bg-secondary/80 p-4 border border-border/50 mb-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif</p>
+                <p className="mt-2 text-sm text-foreground">{selectedSlots.length} créneau{selectedSlots.length > 1 ? "x" : ""} × {recurrenceWeeks} semaine{recurrenceWeeks > 1 ? "s" : ""} = <strong>{totalSessions} session{totalSessions > 1 ? "s" : ""}</strong></p>
+                <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
+              </div>
+
+              <button onClick={() => setStep(5)} disabled={recurrenceConflicts.length > 0}
+                className="w-full rounded-sm bg-fiver-green py-3 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
+                Continuer
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Step 5: Infos + Payment ───── */}
+        {step === 5 && (
           <div className="animate-step">
             <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Vos informations</h3>
             <div className="mx-auto max-w-sm flex flex-col gap-5">
+              {/* Recap */}
               <div className="rounded-sm bg-secondary/80 p-4 border border-border/50">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif de votre session</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlot} &middot; {selectedPitch}</p>
-                <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{currentPrice.toLocaleString()} MRU</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlots.join(", ")} &middot; {selectedPitch}</p>
+                {recurrenceWeeks > 1 && <p className="text-xs text-muted-foreground mt-1">Récurrence : {recurrenceWeeks} semaines ({totalSessions} sessions)</p>}
+                <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
               </div>
+
+              {/* Form fields */}
               <div className="space-y-4">
                 <div>
                   <label htmlFor="booking-name" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Nom complet *</label>
-                  <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required placeholder="Votre nom complet" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                  <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required
+                    disabled={isLoggedIn} placeholder="Votre nom complet"
+                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
                 </div>
                 <div>
                   <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Téléphone *</label>
-                  <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required placeholder="Ex: 48 81 38 22" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                  <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required
+                    disabled={isLoggedIn} placeholder="Ex: 48 81 38 22"
+                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
                 </div>
                 <div>
                   <label htmlFor="booking-email" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Email (Optionnel)</label>
-                  <input id="booking-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={100} placeholder="Pour recevoir votre reçu" className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                  <input id="booking-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={100}
+                    disabled={isLoggedIn} placeholder="Pour recevoir votre reçu"
+                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
                 </div>
               </div>
+
+              {/* Payment method */}
               <div>
                 <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
                 <div className="grid grid-cols-2 gap-3">
                   {PAYMENT_METHODS.map(pm => (
                     <button key={pm.value} type="button" onClick={() => setPaymentMethod(pm.value)}
                       className={cn("flex flex-col items-center gap-1.5 rounded-sm border-2 px-3 py-4 text-center transition-all",
-                        paymentMethod === pm.value ? pm.color : "border-border bg-background text-muted-foreground hover:border-muted-foreground/30"
-                      )}>
+                        paymentMethod === pm.value ? pm.color : "border-border bg-background text-muted-foreground hover:border-muted-foreground/30")}>
                       <pm.icon className="h-5 w-5" />
                       <span className="text-xs font-bold uppercase tracking-wide">{pm.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* Payment type: full or deposit */}
               {paymentMethod && (
-                <div className="rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
-                  <p className="mb-3 text-sm font-medium text-foreground">Envoyez <strong className="text-fiver-green text-lg font-bold">{currentPrice.toLocaleString()} MRU</strong> ici :</p>
-                  <div className="mb-3 rounded-sm bg-fiver-green/10 border border-fiver-green/20 px-4 py-4 text-center">
-                    <p className="text-3xl font-black tracking-widest text-foreground">48 81 38 22</p>
-                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
+                <>
+                  <div>
+                    <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Type de paiement</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button type="button" onClick={() => setPaymentType("full")}
+                        className={cn("rounded-sm border-2 px-3 py-3 text-center text-xs font-bold uppercase transition-all",
+                          paymentType === "full" ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border text-muted-foreground hover:border-muted-foreground/30")}>
+                        Totalité
+                      </button>
+                      <button type="button" onClick={() => setPaymentType("deposit")}
+                        className={cn("rounded-sm border-2 px-3 py-3 text-center text-xs font-bold uppercase transition-all",
+                          paymentType === "deposit" ? "border-yellow-500 bg-yellow-500/10 text-yellow-400" : "border-border text-muted-foreground hover:border-muted-foreground/30")}>
+                        Acompte
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">👉 À l&apos;étape suivante, vous devrez nous envoyer la <strong>capture d&apos;écran</strong> sur WhatsApp avec votre nom. <br/>⚠️ Sans preuve sous 2h, votre créneau sera libéré.</p>
-                </div>
+
+                  {paymentType === "deposit" && (
+                    <div>
+                      <label htmlFor="deposit-amount" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Montant de l&apos;acompte (MRU)</label>
+                      <input id="deposit-amount" type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)}
+                        placeholder={`Total : ${totalPrice.toLocaleString()} MRU`} min={1} max={totalPrice}
+                        className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
+                      {depositAmount && parseInt(depositAmount) < totalPrice && (
+                        <p className="mt-1 text-xs text-yellow-500/80">Reste à payer : {(totalPrice - parseInt(depositAmount)).toLocaleString()} MRU</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
+                    <p className="mb-3 text-sm font-medium text-foreground">Envoyez <strong className="text-fiver-green text-lg font-bold">
+                      {paymentType === "full" ? totalPrice.toLocaleString() : (parseInt(depositAmount) || 0).toLocaleString()} MRU</strong> ici :</p>
+                    <div className="mb-3 rounded-sm bg-fiver-green/10 border border-fiver-green/20 px-4 py-4 text-center">
+                      <p className="text-3xl font-black tracking-widest text-foreground">48 81 38 22</p>
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">👉 À l&apos;étape suivante, vous devrez nous envoyer la <strong>capture d&apos;écran</strong> sur WhatsApp avec votre nom. <br />⚠️ Sans preuve sous 2h, votre créneau sera libéré.</p>
+                  </div>
+                </>
               )}
+
               {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400 border border-red-500/20">{error}</div>}
-              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
-                className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-4 text-sm font-bold uppercase tracking-widest transition-all", name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}
-              >
+
+              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting || (paymentType === "deposit" && !depositAmount)}
+                className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-4 text-sm font-bold uppercase tracking-widest transition-all",
+                  name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}>
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</> : "Confirmer ma demande"}
               </button>
             </div>

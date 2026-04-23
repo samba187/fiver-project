@@ -21,6 +21,7 @@ export default function ParametresPage() {
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdError, setPwdError] = useState("");
   const [pwdSuccess, setPwdSuccess] = useState(false);
+  const [maxRecurrenceWeeks, setMaxRecurrenceWeeks] = useState("5");
 
   const today = new Date();
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -66,6 +67,7 @@ export default function ParametresPage() {
         if (map.price_weekday) setPriceWeekday(map.price_weekday);
         if (map.price_weekend) setPriceWeekend(map.price_weekend);
         if (map.closed_dates) setClosedDatesStr(map.closed_dates);
+        if (map.max_recurrence_weeks) setMaxRecurrenceWeeks(map.max_recurrence_weeks);
       }
       setLoading(false);
     }
@@ -81,6 +83,7 @@ export default function ParametresPage() {
       { key: "price_weekday", value: priceWeekday },
       { key: "price_weekend", value: priceWeekend },
       { key: "closed_dates", value: closedDatesStr },
+      { key: "max_recurrence_weeks", value: maxRecurrenceWeeks },
     ];
     for (const u of updates) {
       const { data } = await supabase.from("settings").select("key").eq("key", u.key).limit(1);
@@ -205,6 +208,17 @@ export default function ParametresPage() {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
+          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Réservations récurrentes</h2>
+          <div>
+            <label className={labelClass}>Nombre max de semaines récurrentes : <span className="text-fiver-green font-bold">{maxRecurrenceWeeks}</span></label>
+            <input type="range" min={2} max={12} value={maxRecurrenceWeeks} onChange={(e) => setMaxRecurrenceWeeks(e.target.value)}
+              className="w-full accent-[#B2FF00] mt-2" />
+            <div className="mt-1 flex justify-between text-[10px] text-white/30"><span>2</span><span>12</span></div>
+            <p className="mt-2 text-xs text-white/30">Les clients ne pourront pas réserver plus de {maxRecurrenceWeeks} semaines récurrentes.</p>
+          </div>
         </div>
 
         <button onClick={handleSaveSettings} className="flex items-center justify-center gap-2 rounded-sm bg-fiver-green py-3 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">

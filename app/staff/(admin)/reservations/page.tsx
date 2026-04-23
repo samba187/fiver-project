@@ -18,9 +18,13 @@ interface Reservation {
   payment_confirmed?: boolean;
   amount_paid?: number;
   total_price?: number;
+  deposit_amount?: number;
   cancellation_reason?: string;
   created_at: string;
   email?: string;
+  is_recurring?: boolean;
+  recurrence_group?: string;
+  user_id?: string;
 }
 
 const PAYMENT_METHODS_MAP: Record<string, { label: string; icon: typeof Smartphone; className: string }> = {
@@ -46,6 +50,7 @@ export default function ReservationsPage() {
   // Modals state
   const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null; totalPrice: number; amountPaid: number }>({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
   const [payReceiver, setPayReceiver] = useState("");
+  const [payAmount, setPayAmount] = useState("");
   const [cancelModal, setCancelModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
   const [cancelReason, setCancelReason] = useState("");
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: number | null }>({ isOpen: false, id: null });
@@ -70,11 +75,20 @@ export default function ReservationsPage() {
 
   async function submitPayment() {
     if (payModal.id && payReceiver.trim()) {
-      await supabase.from("reservations").update({ status: "paid", payment_receiver: payReceiver, amount_paid: payModal.totalPrice }).eq("id", payModal.id);
+      const amount = parseInt(payAmount) || payModal.totalPrice;
+      const newStatus = amount >= payModal.totalPrice ? "paid" : "pending";
+      await supabase.from("reservations").update({ status: newStatus, payment_receiver: payReceiver, amount_paid: amount, payment_confirmed: amount >= payModal.totalPrice }).eq("id", payModal.id);
       setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
       setPayReceiver("");
+      setPayAmount("");
       fetchReservations();
     }
+  }
+
+  async function cancelRecurrenceSeries(recurrenceGroup: string) {
+    if (!confirm("Annuler TOUTE la série récurrente ? Cette action est irréversible.")) return;
+    await supabase.from("reservations").update({ status: "cancelled", cancellation_reason: "Série annulée par l'admin" }).eq("recurrence_group", recurrenceGroup);
+    fetchReservations();
   }
 
   async function submitCancel() {
@@ -113,7 +127,8 @@ export default function ReservationsPage() {
 
   const filtered = useMemo(() => {
     return reservations.filter((r) => {
-      if (filterStatus !== "all" && r.status !== filterStatus) return false;
+      if (filterStatus === "recurring") return r.is_recurring === true;
+      else if (filterStatus !== "all" && r.status !== filterStatus) return false;
       if (search && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.phone.includes(search)) return false;
       return true;
     });
@@ -122,10 +137,14 @@ export default function ReservationsPage() {
   const statusBadge = (status: string, r?: Reservation) => {
     const totalPrice = r?.total_price || 0;
     const amountPaid = r?.amount_paid || 0;
-    const remaining = totalPrice - amountPaid;
     switch (status) {
-      case "paid": return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">💰 Payée</span>;
-      case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
+      case "paid": return <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">✅ Payée ({amountPaid.toLocaleString()} MRU)</span>;
+      case "pending": {
+        if (amountPaid > 0 && amountPaid < totalPrice) {
+          return <span className="rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs font-medium text-yellow-400">⚠️ Acompte ({amountPaid.toLocaleString()}/{totalPrice.toLocaleString()})</span>;
+        }
+        return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
+      }
       case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">❌ Annulée</span>;
       default: return null;
     }
@@ -187,7 +206,7 @@ export default function ReservationsPage() {
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap items-center gap-1 rounded-sm border border-white/10 bg-white/5 p-1">
-          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }].map((f) => (
+          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }, { key: "recurring", label: "🔁 Récurrentes" }].map((f) => (
             <button key={f.key} onClick={() => setFilterStatus(f.key)} className={cn("rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors", filterStatus === f.key ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}>{f.label}</button>
           ))}
         </div>
@@ -300,10 +319,11 @@ export default function ReservationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-sm rounded-lg border border-white/10 bg-[#161616] p-6 shadow-2xl relative">
             <h3 className="mb-2 font-[var(--font-heading)] text-lg font-bold text-white uppercase tracking-wide">Encaissement</h3>
-            <p className="mb-3 text-sm text-white/50">Validez l'encaissement et enregistrez votre nom.</p>
+            <p className="mb-3 text-sm text-white/50">Validez le montant reçu et enregistrez votre nom.</p>
             {payModal.totalPrice > 0 && (
               <div className="mb-4 rounded-sm bg-white/5 px-3 py-2 text-xs text-white/50">
-                Montant total exigé : <span className="font-medium text-fiver-green">{payModal.totalPrice.toLocaleString()} MRU</span>
+                Total : <span className="font-medium text-fiver-green">{payModal.totalPrice.toLocaleString()} MRU</span>
+                {payModal.amountPaid > 0 && <> · Déjà payé : <span className="font-medium text-yellow-400">{payModal.amountPaid.toLocaleString()} MRU</span></>}
               </div>
             )}
             <input
@@ -311,14 +331,26 @@ export default function ReservationsPage() {
               placeholder="Nom de l'encaisseur (ex: Amadou)"
               value={payReceiver}
               onChange={(e) => setPayReceiver(e.target.value)}
-              className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
+              className="mb-3 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
               autoFocus
             />
+            <input
+              type="number"
+              placeholder={`Montant reçu (défaut: ${payModal.totalPrice.toLocaleString()} MRU)`}
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              className="mb-6 w-full rounded-sm border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green"
+            />
+            {payAmount && parseInt(payAmount) < payModal.totalPrice && (
+              <p className="mb-4 text-xs text-yellow-400/80">⚠️ Paiement partiel — restera {(payModal.totalPrice - parseInt(payAmount)).toLocaleString()} MRU à percevoir.</p>
+            )}
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
-              <button onClick={submitPayment} disabled={!payReceiver.trim()} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Confirmer la totalité</button>
+              <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="rounded-sm px-4 py-2 text-sm text-white/40 hover:text-white/70 transition-colors">Retour</button>
+              <button onClick={submitPayment} disabled={!payReceiver.trim()} className="rounded-sm bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {payAmount && parseInt(payAmount) < payModal.totalPrice ? "Encaisser l'acompte" : "Confirmer la totalité"}
+              </button>
             </div>
-            <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+            <button onClick={() => { setPayModal({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 }); setPayReceiver(""); setPayAmount(""); }} className="absolute right-4 top-4 text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
           </div>
         </div>
       )}
