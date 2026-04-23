@@ -25,20 +25,18 @@ export default function ComptePage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const router = useRouter();
 
-  // Si déjà connecté, redirige vers le dashboard
+  // Si déjà connecté en tant que CLIENT, redirige vers le dashboard client
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
-        // Vérifier si c'est un admin ou un client
         const userEmail = data.user.email?.toLowerCase() || "";
-        if (userEmail.includes("admin") || userEmail.includes("staff")) {
-          router.replace("/staff/dashboard");
-        } else {
+        // Seuls les clients sont redirigés. Les admins voient le formulaire normalement.
+        if (!userEmail.includes("admin") && !userEmail.includes("staff")) {
           router.replace("/compte/dashboard");
+          return;
         }
-      } else {
-        setCheckingAuth(false);
       }
+      setCheckingAuth(false);
     });
   }, [router]);
 

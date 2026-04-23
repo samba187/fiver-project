@@ -21,13 +21,16 @@ export function Navigation() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [clientName, setClientName] = useState("");
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (data.user) {
         const email = data.user.email?.toLowerCase() || "";
-        if (!email.includes("admin") && !email.includes("staff")) {
+        if (email.includes("admin") || email.includes("staff")) {
+          setIsAdmin(true);
+        } else {
           setIsLoggedIn(true);
           const { data: profile } = await supabase.from("user_profiles").select("name").eq("id", data.user.id).single();
           if (profile) setClientName(profile.name);
@@ -70,7 +73,7 @@ export function Navigation() {
           <Link href={isLoggedIn ? "/compte/dashboard" : "/compte"}
             className="flex items-center gap-1.5 rounded-sm border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 transition-colors hover:border-fiver-green/30 hover:text-white">
             <UserCircle className="h-4 w-4" />
-            {isLoggedIn ? (clientName?.split(" ")[0] || "Mon Compte") : "Connexion"}
+            {isLoggedIn ? (clientName?.split(" ")[0] || "Mon Compte") : "Mon Compte"}
           </Link>
         </div>
 
@@ -112,7 +115,7 @@ export function Navigation() {
               <Link href={isLoggedIn ? "/compte/dashboard" : "/compte"} onClick={() => setMobileOpen(false)}
                 className="flex items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/5 py-3 text-sm font-medium text-white/70">
                 <UserCircle className="h-4 w-4" />
-                {isLoggedIn ? "Mon Espace" : "Se Connecter"}
+                {isLoggedIn ? "Mon Espace" : "Mon Compte"}
               </Link>
             </li>
           </ul>

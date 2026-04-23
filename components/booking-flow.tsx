@@ -14,7 +14,7 @@ const STEPS = [
   { id: 1, label: "Date", icon: Calendar },
   { id: 2, label: "Créneaux", icon: Clock },
   { id: 3, label: "Terrain", icon: LayoutGrid },
-  { id: 4, label: "Récurrence", icon: Repeat },
+  { id: 4, label: "Semaines", icon: Repeat },
   { id: 5, label: "Infos", icon: User },
 ];
 
@@ -158,7 +158,7 @@ export function BookingFlow() {
     async function fetchBooked() {
       if (!selectedDate) return;
       const dateStr = formatDateStr(selectedDate);
-      const { data } = await supabase.from("reservations").select("time, pitch").eq("date", dateStr).neq("status", "cancelled");
+      const { data } = await supabase.from("reservations").select("time, pitch").eq("date", dateStr).not("status", "in", '("cancelled","deleted")');
       if (data) {
         const set = new Set<string>();
         data.forEach((r) => set.add(`${r.pitch}:${r.time}`));
@@ -186,7 +186,7 @@ export function BookingFlow() {
         .select("time, pitch")
         .eq("date", dateStr)
         .eq("pitch", selectedPitch)
-        .neq("status", "cancelled");
+        .not("status", "in", '("cancelled","deleted")');
 
       if (data) {
         for (const slot of selectedSlots) {
@@ -248,9 +248,8 @@ export function BookingFlow() {
       return;
     }
     const cleanPhone = phone.replace(/\D/g, "");
-    const phoneRegex = /^[234][0-9]{7}$/;
-    if (!phoneRegex.test(cleanPhone)) {
-      setError("Le numéro de téléphone doit contenir exactement 8 chiffres valides (ex: 48813822).");
+    if (cleanPhone.length < 8 || cleanPhone.length > 15) {
+      setError("Numéro de téléphone invalide (entre 8 et 15 chiffres).");
       return;
     }
 
@@ -285,7 +284,7 @@ export function BookingFlow() {
           const { data: existing } = await supabase
             .from("reservations").select("id")
             .eq("date", dateStr).eq("time", slot).eq("pitch", selectedPitch)
-            .neq("status", "cancelled").limit(1);
+            .not("status", "in", '("cancelled","deleted")').limit(1);
 
           if (existing && existing.length > 0) {
             setError(`Le créneau ${slot} du ${date.toLocaleDateString("fr-FR")} est déjà pris.`);
@@ -354,7 +353,7 @@ export function BookingFlow() {
           {name}, {totalSessions} créneau{totalSessions > 1 ? "x" : ""} réservé{totalSessions > 1 ? "s" : ""} sur {selectedPitch}.
         </p>
         {recurrenceWeeks > 1 && (
-          <p className="mt-1 text-xs text-muted-foreground/70">Récurrence : {recurrenceWeeks} semaines à partir du {selectedDate?.toLocaleDateString("fr-FR")}</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">Chaque semaine pendant {recurrenceWeeks} semaines à partir du {selectedDate?.toLocaleDateString("fr-FR")}</p>
         )}
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
@@ -524,8 +523,8 @@ export function BookingFlow() {
         {/* ─── Step 4: Recurrence ─────────── */}
         {step === 4 && (
           <div className="animate-step">
-            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Récurrence</h3>
-            <p className="mb-6 text-center text-xs text-muted-foreground">Souhaitez-vous répéter cette réservation chaque semaine ?</p>
+            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Chaque semaine ?</h3>
+            <p className="mb-6 text-center text-xs text-muted-foreground">Voulez-vous réserver le même créneau sur plusieurs semaines ?</p>
 
             <div className="mx-auto max-w-sm">
               <div className="mb-6 flex flex-col items-center gap-4">
@@ -535,50 +534,79 @@ export function BookingFlow() {
                       recurrenceWeeks === 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
                     Une seule fois
                   </button>
-                  <button onClick={() => setRecurrenceWeeks(2)}
+                  <button onClick={() => { if (!isLoggedIn) { setError("Vous devez cr\u00e9er un compte pour r\u00e9server sur plusieurs semaines."); return; } setRecurrenceWeeks(2); setError(""); }}
                     className={cn("flex-1 rounded-sm border-2 px-4 py-3 text-center text-sm font-medium transition-colors",
                       recurrenceWeeks > 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
-                    <Repeat className="mx-auto mb-1 h-4 w-4" /> Récurrent
+                    Plusieurs semaines
                   </button>
                 </div>
 
-                {recurrenceWeeks > 1 && (
+                {!isLoggedIn && recurrenceWeeks === 1 && (
+                  <p className="text-[11px] text-muted-foreground/70 text-center">
+                    Pour réserver sur plusieurs semaines, <a href="/compte" className="text-fiver-green underline">créez un compte</a> d&apos;abord.
+                  </p>
+                )}
+
+                {error && (
+                  <div className="w-full rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{error}</div>
+                )}
+
+                {recurrenceWeeks > 1 && selectedDate && (
                   <div className="w-full rounded-sm border border-border bg-card p-4">
-                    <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                      Nombre de semaines : <span className="text-fiver-green">{recurrenceWeeks}</span>
-                    </label>
-                    <input type="range" min={2} max={maxRecurrenceWeeks} value={recurrenceWeeks}
-                      onChange={(e) => setRecurrenceWeeks(parseInt(e.target.value))}
-                      className="w-full accent-[#B2FF00]" />
-                    <div className="mt-2 flex justify-between text-[10px] text-muted-foreground/50">
-                      <span>2 sem.</span>
-                      <span>{maxRecurrenceWeeks} sem.</span>
+                    <p className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Sélectionnez les semaines :</p>
+                    <div className="flex flex-col gap-2">
+                      {/* First week is always selected (the original date) */}
+                      <div className="flex items-center gap-3 rounded-sm bg-fiver-green/10 border border-fiver-green/30 px-3 py-2.5">
+                        <Check className="h-4 w-4 text-fiver-green shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {selectedDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                          </p>
+                          <p className="text-[10px] text-fiver-green">Semaine 1 (sélectionnée)</p>
+                        </div>
+                      </div>
+                      {/* Additional weeks */}
+                      {Array.from({ length: maxRecurrenceWeeks - 1 }, (_, i) => {
+                        const weekNum = i + 2;
+                        const futureDate = addWeeks(selectedDate, i + 1);
+                        const isSelected = recurrenceWeeks >= weekNum;
+                        const hasConflict = recurrenceConflicts.some(c => c.includes(futureDate.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })));
+                        return (
+                          <button key={weekNum}
+                            onClick={() => setRecurrenceWeeks(isSelected ? weekNum - 1 : weekNum)}
+                            disabled={hasConflict}
+                            className={cn("flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left transition-colors",
+                              hasConflict ? "border-red-500/20 bg-red-500/5 cursor-not-allowed" :
+                              isSelected ? "border-fiver-green/30 bg-fiver-green/5" : "border-border hover:border-fiver-green/20")}>
+                            <div className={cn("h-4 w-4 rounded-sm border-2 shrink-0 flex items-center justify-center",
+                              hasConflict ? "border-red-500/30" : isSelected ? "border-fiver-green bg-fiver-green" : "border-muted-foreground/30")}>
+                              {isSelected && !hasConflict && <Check className="h-3 w-3 text-fiver-black" />}
+                            </div>
+                            <div className="flex-1">
+                              <p className={cn("text-sm font-medium", hasConflict ? "text-red-400 line-through" : "text-foreground")}>
+                                {futureDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                              </p>
+                              {hasConflict && <p className="text-[10px] text-red-400">Créneau déjà pris</p>}
+                              {!hasConflict && <p className="text-[10px] text-muted-foreground">Semaine {weekNum}</p>}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    {checkingRecurrence && <p className="mt-3 text-xs text-white/40 animate-pulse">Vérification des disponibilités...</p>}
-
-                    {recurrenceConflicts.length > 0 && (
-                      <div className="mt-3 rounded-sm bg-red-500/10 border border-red-500/20 p-3">
-                        <p className="text-xs font-bold text-red-400 mb-1">Conflits détectés :</p>
-                        {recurrenceConflicts.map((c, i) => <p key={i} className="text-xs text-red-400/70">• {c}</p>)}
-                      </div>
-                    )}
-
-                    {!checkingRecurrence && recurrenceConflicts.length === 0 && recurrenceWeeks > 1 && (
-                      <p className="mt-3 text-xs text-fiver-green/70">✓ Tous les créneaux sont disponibles</p>
-                    )}
+                    {checkingRecurrence && <p className="mt-3 text-xs text-muted-foreground animate-pulse">Vérification des disponibilités...</p>}
                   </div>
                 )}
               </div>
 
               {/* Summary */}
               <div className="rounded-sm bg-secondary/80 p-4 border border-border/50 mb-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Total</p>
                 <p className="mt-2 text-sm text-foreground">{selectedSlots.length} créneau{selectedSlots.length > 1 ? "x" : ""} × {recurrenceWeeks} semaine{recurrenceWeeks > 1 ? "s" : ""} = <strong>{totalSessions} session{totalSessions > 1 ? "s" : ""}</strong></p>
                 <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
               </div>
 
-              <button onClick={() => setStep(5)} disabled={recurrenceConflicts.length > 0}
+              <button onClick={() => { setError(""); setStep(5); }} disabled={recurrenceConflicts.length > 0}
                 className="w-full rounded-sm bg-fiver-green py-3 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
                 Continuer
               </button>
@@ -593,9 +621,9 @@ export function BookingFlow() {
             <div className="mx-auto max-w-sm flex flex-col gap-5">
               {/* Recap */}
               <div className="rounded-sm bg-secondary/80 p-4 border border-border/50">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Récapitulatif</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Total</p>
                 <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlots.join(", ")} &middot; {selectedPitch}</p>
-                {recurrenceWeeks > 1 && <p className="text-xs text-muted-foreground mt-1">Récurrence : {recurrenceWeeks} semaines ({totalSessions} sessions)</p>}
+                {recurrenceWeeks > 1 && <p className="text-xs text-muted-foreground mt-1">Chaque semaine pendant {recurrenceWeeks} semaines ({totalSessions} sessions)</p>}
                 <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
               </div>
 

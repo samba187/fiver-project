@@ -37,6 +37,7 @@ export default function ClientsPage() {
   const [resetModal, setResetModal] = useState<{ isOpen: boolean; client: Client | null; tempPassword: string }>({ isOpen: false, client: null, tempPassword: "" });
   const [detailModal, setDetailModal] = useState<{ isOpen: boolean; client: Client | null; reservations: ClientReservation[] }>({ isOpen: false, client: null, reservations: [] });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; client: Client | null; name: string }>({ isOpen: false, client: null, name: "" });
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; client: Client | null }>({ isOpen: false, client: null });
   const [copied, setCopied] = useState(false);
 
   const fetchClients = useCallback(async () => {
@@ -105,6 +106,17 @@ export default function ClientsPage() {
       await supabase.from("clients").update({ is_banned: newStatus }).eq("id", parseInt(client.id));
     }
     setClients(clients.map(c => c.id === client.id ? { ...c, is_suspended: newStatus } : c));
+  }
+
+  async function deleteUser(client: Client) {
+    // Delete from user_profiles (registered user) or clients (legacy)
+    if (client.id.includes("-")) {
+      await supabase.from("user_profiles").delete().eq("id", client.id);
+    } else {
+      await supabase.from("clients").delete().eq("id", parseInt(client.id));
+    }
+    setClients(clients.filter(c => c.id !== client.id));
+    setDeleteModal({ isOpen: false, client: null });
   }
 
   async function handleResetPassword(client: Client) {
@@ -213,6 +225,10 @@ export default function ClientsPage() {
                     client.is_suspended ? "border-white/10 text-white/50 hover:bg-white/5" : "border-red-500/20 text-red-400/60 hover:bg-red-500/10 hover:text-red-500")}>
                   <Ban className="h-3 w-3" /> {client.is_suspended ? "Réactiver" : "Suspendre"}
                 </button>
+                <button onClick={() => setDeleteModal({ isOpen: true, client })}
+                  className="flex items-center gap-1 rounded-sm border border-red-500/20 px-2 py-1 text-[10px] font-medium text-red-400/60 hover:bg-red-500/10 hover:text-red-500 transition-colors">
+                  <Trash2 className="h-3 w-3" /> Supprimer
+                </button>
               </div>
             </div>
           ))
@@ -299,6 +315,28 @@ export default function ClientsPage() {
               <input type="text" value={editModal.name} onChange={e => setEditModal({ ...editModal, name: e.target.value })} className={inputClass} />
             </div>
             <button onClick={saveEdit} className="w-full rounded-sm bg-fiver-green py-2.5 text-xs font-semibold uppercase text-fiver-black hover:opacity-90">Sauvegarder</button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete User Modal */}
+      {deleteModal.isOpen && deleteModal.client && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDeleteModal({ isOpen: false, client: null })}>
+          <div className="w-full max-w-sm rounded-lg border border-red-500/20 bg-[#161616] p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold uppercase text-red-400">Supprimer le client</h3>
+              <button onClick={() => setDeleteModal({ isOpen: false, client: null })} className="text-white/30 hover:text-white"><XIcon className="h-4 w-4" /></button>
+            </div>
+            <div className="flex items-start gap-2 rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2.5 mb-4">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-400" />
+              <p className="text-xs text-red-400/80">
+                Vous allez supprimer le compte de <strong className="text-red-400">{deleteModal.client.name}</strong> ({deleteModal.client.phone}). Cette action est irréversible.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteModal({ isOpen: false, client: null })} className="flex-1 rounded-sm border border-white/10 py-2.5 text-xs font-medium text-white/50 hover:bg-white/5">Annuler</button>
+              <button onClick={() => deleteUser(deleteModal.client!)} className="flex-1 rounded-sm bg-red-500 py-2.5 text-xs font-bold text-white hover:bg-red-600 transition-colors">Supprimer</button>
+            </div>
           </div>
         </div>
       )}
