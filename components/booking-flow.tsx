@@ -3,19 +3,11 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2, Smartphone, CreditCard, Repeat, ShoppingCart } from "lucide-react";
+import { Calendar, Clock, LayoutGrid, User, ChevronLeft, ChevronRight, Check, Loader2, Smartphone, CreditCard, Repeat } from "lucide-react";
 
 const PAYMENT_METHODS = [
   { value: "bankily", label: "Bankily", icon: Smartphone, desc: "Paiement mobile", color: "border-yellow-500 bg-yellow-500/10 text-yellow-400" },
   { value: "masrvi", label: "Masrvi", icon: CreditCard, desc: "Paiement mobile", color: "border-purple-500 bg-purple-500/10 text-purple-400" },
-];
-
-const STEPS = [
-  { id: 1, label: "Date", icon: Calendar },
-  { id: 2, label: "Créneaux", icon: Clock },
-  { id: 3, label: "Terrain", icon: LayoutGrid },
-  { id: 4, label: "Semaines", icon: Repeat },
-  { id: 5, label: "Infos", icon: User },
 ];
 
 const ALL_SLOTS = [
@@ -64,12 +56,15 @@ function addWeeks(date: Date, weeks: number): Date {
   return d;
 }
 
+type BookingMode = "normal" | "abonnement";
+
 export function BookingFlow() {
-  const [step, setStep] = useState(1);
+  const [mode, setMode] = useState<BookingMode | null>(null);
+  const [step, setStep] = useState(0); // 0 = mode selection
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [selectedPitch, setSelectedPitch] = useState<string | null>(null);
-  const [recurrenceWeeks, setRecurrenceWeeks] = useState(1); // 1 = no recurrence
+  const [selectedWeekOffsets, setSelectedWeekOffsets] = useState<number[]>([0]); // [0] = first week always
   const [maxRecurrenceWeeks, setMaxRecurrenceWeeks] = useState(5);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -94,8 +89,8 @@ export function BookingFlow() {
   const [pitchStatuses, setPitchStatuses] = useState<Record<string, string>>({ "Terrain 1": "available", "Terrain 2": "available" });
   const [bookedSlots, setBookedSlots] = useState<Set<string>>(new Set());
 
-  // Conflict check for recurrence
-  const [recurrenceConflicts, setRecurrenceConflicts] = useState<string[]>([]);
+  // Per-week availability for abonnement
+  const [weekAvailability, setWeekAvailability] = useState<Record<number, boolean>>({}); // offset -> available
   const [checkingRecurrence, setCheckingRecurrence] = useState(false);
 
   const today = new Date();
@@ -109,8 +104,31 @@ export function BookingFlow() {
     return isWeekend ? priceWeekend : priceWeekday;
   }, [selectedDate, priceWeekday, priceWeekend]);
 
-  const totalSessions = selectedSlots.length * recurrenceWeeks;
+  const totalSessions = selectedWeekOffsets.length;
   const totalPrice = currentPrice * totalSessions;
+  const isAbonnement = mode === "abonnement" && selectedWeekOffsets.length > 1;
+
+  // Steps depend on mode
+  const STEPS = useMemo(() => {
+    if (mode === "abonnement") {
+      return [
+        { id: 1, label: "Date", icon: Calendar },
+        { id: 2, label: "Créneau", icon: Clock },
+        { id: 3, label: "Terrain", icon: LayoutGrid },
+        { id: 4, label: "Semaines", icon: Repeat },
+        { id: 5, label: "Infos", icon: User },
+      ];
+    }
+    return [
+      { id: 1, label: "Date", icon: Calendar },
+      { id: 2, label: "Créneau", icon: Clock },
+      { id: 3, label: "Terrain", icon: LayoutGrid },
+      { id: 4, label: "Infos", icon: User },
+    ];
+  }, [mode]);
+
+  // Map logical step to actual step for normal mode (skip weeks step)
+  const infoStep = mode === "abonnement" ? 5 : 4;
 
   // Check auth
   useEffect(() => {
@@ -168,16 +186,16 @@ export function BookingFlow() {
     fetchBooked();
   }, [selectedDate]);
 
-  // Check recurrence conflicts
-  const checkRecurrenceConflicts = useCallback(async () => {
-    if (!selectedDate || !selectedPitch || recurrenceWeeks <= 1 || selectedSlots.length === 0) {
-      setRecurrenceConflicts([]);
+  // Check availability for each future week (abonnement mode)
+  const checkWeekAvailability = useCallback(async () => {
+    if (!selectedDate || !selectedPitch || !selectedSlot || mode !== "abonnement") {
+      setWeekAvailability({});
       return;
     }
     setCheckingRecurrence(true);
-    const conflicts: string[] = [];
+    const avail: Record<number, boolean> = { 0: true }; // week 0 is already validated in step 2
 
-    for (let w = 1; w < recurrenceWeeks; w++) {
+    for (let w = 1; w < maxRecurrenceWeeks; w++) {
       const futureDate = addWeeks(selectedDate, w);
       const dateStr = formatDateStr(futureDate);
 
@@ -188,22 +206,18 @@ export function BookingFlow() {
         .eq("pitch", selectedPitch)
         .not("status", "in", '("cancelled","deleted")');
 
-      if (data) {
-        for (const slot of selectedSlots) {
-          if (data.some(r => r.time === slot)) {
-            conflicts.push(`${futureDate.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" })} — ${slot}`);
-          }
-        }
-      }
+      avail[w] = !(data && data.some(r => r.time === selectedSlot));
     }
 
-    setRecurrenceConflicts(conflicts);
+    setWeekAvailability(avail);
+    // Remove any selected weeks that are now unavailable
+    setSelectedWeekOffsets(prev => prev.filter(w => w === 0 || avail[w] !== false));
     setCheckingRecurrence(false);
-  }, [selectedDate, selectedPitch, recurrenceWeeks, selectedSlots]);
+  }, [selectedDate, selectedPitch, selectedSlot, mode, maxRecurrenceWeeks]);
 
   useEffect(() => {
-    checkRecurrenceConflicts();
-  }, [checkRecurrenceConflicts]);
+    checkWeekAvailability();
+  }, [checkWeekAvailability]);
 
   const availableSlots = useMemo(() => {
     if (selectedDate) {
@@ -223,24 +237,23 @@ export function BookingFlow() {
     { id: "Terrain 2", available: pitchStatuses["Terrain 2"] === "available" },
   ], [pitchStatuses]);
 
-  function toggleSlot(time: string) {
-    setSelectedSlots((prev) =>
-      prev.includes(time) ? prev.filter(s => s !== time) : [...prev, time]
-    );
+  function handlePrev() {
+    if (step > 1) setStep(step - 1);
+    else if (step === 1) { setStep(0); setMode(null); }
   }
 
-  function handlePrev() { if (step > 1) setStep(step - 1); }
   function handleReset() {
-    setStep(1); setSelectedDate(null); setSelectedSlots([]); setSelectedPitch(null);
-    setRecurrenceWeeks(1); setPaymentMethod(""); setPaymentType("full"); setDepositAmount("");
+    setStep(0); setMode(null); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
+    setSelectedWeekOffsets([0]); setPaymentMethod(""); setPaymentType("full"); setDepositAmount("");
     setConfirmed(false); setError("");
     if (!isLoggedIn) { setName(""); setPhone(""); setEmail(""); }
   }
+
   function prevMonth() { if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(viewMonth - 1); }
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
 
   async function handleConfirm() {
-    if (!selectedDate || selectedSlots.length === 0 || !selectedPitch || !paymentMethod) return;
+    if (!selectedDate || !selectedSlot || !selectedPitch || !paymentMethod) return;
 
     const trimmedName = name.trim();
     if (trimmedName.length < 2 || trimmedName.length > 50) {
@@ -253,8 +266,8 @@ export function BookingFlow() {
       return;
     }
 
-    if (recurrenceConflicts.length > 0) {
-      setError("Il y a des conflits de créneaux pour la récurrence. Corrigez-les avant de confirmer.");
+    if (mode === "abonnement" && selectedWeekOffsets.length < 2) {
+      setError("Sélectionnez au moins 2 semaines pour un abonnement.");
       return;
     }
 
@@ -270,38 +283,36 @@ export function BookingFlow() {
         return;
       }
 
-      const recurrenceGroup = recurrenceWeeks > 1 ? crypto.randomUUID() : null;
+      const recurrenceGroup = selectedWeekOffsets.length > 1 ? crypto.randomUUID() : null;
       const declaredDeposit = paymentType === "deposit" ? parseInt(depositAmount) || 0 : totalPrice;
 
       // Create all reservations
       const inserts = [];
-      for (let w = 0; w < recurrenceWeeks; w++) {
+      for (const w of selectedWeekOffsets) {
         const date = addWeeks(selectedDate, w);
         const dateStr = formatDateStr(date);
 
-        for (const slot of selectedSlots) {
-          // Verify slot still available
-          const { data: existing } = await supabase
-            .from("reservations").select("id")
-            .eq("date", dateStr).eq("time", slot).eq("pitch", selectedPitch)
-            .not("status", "in", '("cancelled","deleted")').limit(1);
+        // Verify slot still available
+        const { data: existing } = await supabase
+          .from("reservations").select("id")
+          .eq("date", dateStr).eq("time", selectedSlot).eq("pitch", selectedPitch)
+          .not("status", "in", '("cancelled","deleted")').limit(1);
 
-          if (existing && existing.length > 0) {
-            setError(`Le créneau ${slot} du ${date.toLocaleDateString("fr-FR")} est déjà pris.`);
-            setSubmitting(false);
-            return;
-          }
-
-          inserts.push({
-            name: trimmedName, phone: cleanPhone, email, date: dateStr, time: slot,
-            pitch: selectedPitch, status: "pending",
-            payment_method: paymentMethod, total_price: currentPrice,
-            amount_paid: 0, payment_confirmed: false,
-            user_id: userId, is_recurring: recurrenceWeeks > 1,
-            recurrence_group: recurrenceGroup,
-            deposit_amount: Math.round(declaredDeposit / totalSessions),
-          });
+        if (existing && existing.length > 0) {
+          setError(`Le créneau ${selectedSlot} du ${date.toLocaleDateString("fr-FR")} est déjà pris.`);
+          setSubmitting(false);
+          return;
         }
+
+        inserts.push({
+          name: trimmedName, phone: cleanPhone, email, date: dateStr, time: selectedSlot,
+          pitch: selectedPitch, status: "pending",
+          payment_method: paymentMethod, total_price: currentPrice,
+          amount_paid: 0, payment_confirmed: false,
+          user_id: userId, is_recurring: selectedWeekOffsets.length > 1,
+          recurrence_group: recurrenceGroup,
+          deposit_amount: Math.round(declaredDeposit / totalSessions),
+        });
       }
 
       const { error: dbError } = await supabase.from("reservations").insert(inserts);
@@ -314,7 +325,7 @@ export function BookingFlow() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "reservation",
-            data: { name: trimmedName, phone: cleanPhone, email, date: formatDateStr(selectedDate), time: selectedSlots.join(", "), pitch: selectedPitch, amount: totalPrice, sessions: totalSessions, recurrence: recurrenceWeeks > 1 },
+            data: { name: trimmedName, phone: cleanPhone, email, date: formatDateStr(selectedDate), time: selectedSlot, pitch: selectedPitch, amount: totalPrice, sessions: totalSessions, recurrence: recurrenceWeeks > 1 },
             origin: window.location.origin,
           }),
         });
@@ -323,7 +334,7 @@ export function BookingFlow() {
       // Update bookedSlots
       setBookedSlots((prev) => {
         const next = new Set(prev);
-        selectedSlots.forEach(s => next.add(`${selectedPitch}:${s}`));
+        next.add(`${selectedPitch}:${selectedSlot}`);
         return next;
       });
 
@@ -352,8 +363,8 @@ export function BookingFlow() {
         <p className="mt-3 text-muted-foreground">
           {name}, {totalSessions} créneau{totalSessions > 1 ? "x" : ""} réservé{totalSessions > 1 ? "s" : ""} sur {selectedPitch}.
         </p>
-        {recurrenceWeeks > 1 && (
-          <p className="mt-1 text-xs text-muted-foreground/70">Chaque semaine pendant {recurrenceWeeks} semaines à partir du {selectedDate?.toLocaleDateString("fr-FR")}</p>
+        {isAbonnement && (
+          <p className="mt-1 text-xs text-muted-foreground/70">Abonnement {totalSessions} semaines à partir du {selectedDate?.toLocaleDateString("fr-FR")}</p>
         )}
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
@@ -363,7 +374,7 @@ export function BookingFlow() {
           {paymentType === "deposit" && (
             <p className="mb-3 text-xs text-yellow-500/90">Reste à payer : {(totalPrice - declaredDeposit).toLocaleString()} MRU</p>
           )}
-          <a href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlots.join(", ")}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
+          <a href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
             target="_blank" rel="noreferrer"
             className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors">
             Envoyer mon reçu {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}
@@ -373,6 +384,44 @@ export function BookingFlow() {
         <button onClick={handleReset} className="mt-6 rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
           Nouvelle réservation
         </button>
+      </div>
+    );
+  }
+
+  // ─── MODE SELECTION (Step 0) ────────────────────────
+  if (step === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm backdrop-blur-sm sm:p-8">
+        <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Réserver un terrain</h3>
+        <p className="mb-8 text-center text-xs text-muted-foreground">Choisissez votre type de réservation</p>
+        <div className="mx-auto max-w-md flex flex-col gap-4 sm:flex-row">
+          <button onClick={() => { setMode("normal"); setRecurrenceWeeks(1); setStep(1); }}
+            className="flex-1 rounded-sm border-2 border-border bg-card px-6 py-8 text-center transition-all hover:border-fiver-green/50 hover:bg-fiver-green/5 group">
+            <Calendar className="mx-auto mb-3 h-8 w-8 text-muted-foreground group-hover:text-fiver-green transition-colors" />
+            <span className="block font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide text-foreground">Réservation</span>
+            <span className="mt-2 block text-xs text-muted-foreground">Une soirée, un créneau</span>
+          </button>
+          <button onClick={() => {
+            if (!isLoggedIn) {
+              setError("Vous devez créer un compte pour prendre un abonnement.");
+              return;
+            }
+            setMode("abonnement"); setSelectedWeekOffsets([0]); setStep(1); setError("");
+          }}
+            className="flex-1 rounded-sm border-2 border-border bg-card px-6 py-8 text-center transition-all hover:border-fiver-green/50 hover:bg-fiver-green/5 group">
+            <Repeat className="mx-auto mb-3 h-8 w-8 text-muted-foreground group-hover:text-fiver-green transition-colors" />
+            <span className="block font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide text-foreground">Abonnement</span>
+            <span className="mt-2 block text-xs text-muted-foreground">Même créneau, plusieurs semaines</span>
+          </button>
+        </div>
+        {!isLoggedIn && (
+          <p className="mt-6 text-center text-[11px] text-muted-foreground/70">
+            Pour l&apos;abonnement, <a href="/compte" className="text-fiver-green underline">créez un compte</a> d&apos;abord.
+          </p>
+        )}
+        {error && (
+          <div className="mt-4 mx-auto max-w-md rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400 text-center">{error}</div>
+        )}
       </div>
     );
   }
@@ -424,7 +473,7 @@ export function BookingFlow() {
                   const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
                   return (
                     <button key={day} disabled={isDisabled}
-                      onClick={() => { setSelectedDate(date); setSelectedSlots([]); setTimeout(() => setStep(2), 200); }}
+                      onClick={() => { setSelectedDate(date); setSelectedSlot(null); setTimeout(() => setStep(2), 200); }}
                       className={cn(
                         "aspect-square rounded-sm text-sm font-medium transition-colors",
                         isDisabled ? "cursor-not-allowed text-muted-foreground/30 opacity-50" : "text-foreground hover:bg-fiver-green/10",
@@ -439,57 +488,41 @@ export function BookingFlow() {
           </div>
         )}
 
-        {/* ─── Step 2: Multi Time Slots ────── */}
+        {/* ─── Step 2: Single Time Slot ────── */}
         {step === 2 && (
           <div className="animate-step">
-            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez vos créneaux</h3>
-            <p className="mb-6 text-center text-xs text-muted-foreground">Vous pouvez sélectionner plusieurs créneaux</p>
+            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez votre créneau</h3>
+            <p className="mb-6 text-center text-xs text-muted-foreground">
+              {selectedDate?.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {currentPrice.toLocaleString()} MRU / créneau
+            </p>
 
             {availableSlots.length === 0 ? (
               <p className="text-center text-sm text-muted-foreground py-12">Aucun créneau disponible pour cette date.</p>
             ) : (
-              <>
-                <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
-                  {availableSlots.map((slot) => {
-                    const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
-                    const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
-                    const fullyBooked = pitch1Booked && pitch2Booked;
-                    const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
-                    const isSelected = selectedSlots.includes(slot.time);
+              <div className="mx-auto grid max-w-md grid-cols-2 gap-3">
+                {availableSlots.map((slot) => {
+                  const pitch1Booked = bookedSlots.has(`Terrain 1:${slot.time}`) || pitchStatuses["Terrain 1"] !== "available";
+                  const pitch2Booked = bookedSlots.has(`Terrain 2:${slot.time}`) || pitchStatuses["Terrain 2"] !== "available";
+                  const fullyBooked = pitch1Booked && pitch2Booked;
+                  const availCount = (pitch1Booked ? 0 : 1) + (pitch2Booked ? 0 : 1);
+                  const isSelected = selectedSlot === slot.time;
 
-                    return (
-                      <button key={slot.time} disabled={fullyBooked}
-                        onClick={() => { if (!fullyBooked) toggleSlot(slot.time); }}
-                        className={cn(
-                          "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors border-2",
-                          fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through border-transparent",
-                          !fullyBooked && !isSelected && "bg-secondary/50 text-foreground hover:border-fiver-green/50 hover:bg-fiver-green/5 border-transparent",
-                          isSelected && "bg-fiver-green/10 text-fiver-green border-fiver-green"
-                        )}>
-                        <div className="flex items-center justify-between">
-                          <span>{slot.time}</span>
-                          {isSelected && <Check className="h-4 w-4 text-fiver-green" />}
-                        </div>
-                        {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: "none" }}>Complet</span>}
-                        {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedSlots.length > 0 && (
-                  <div className="mt-6 flex flex-col items-center gap-3">
-                    <div className="flex items-center gap-2 rounded-full bg-fiver-green/10 border border-fiver-green/20 px-4 py-2 text-sm font-medium text-fiver-green">
-                      <ShoppingCart className="h-4 w-4" />
-                      {selectedSlots.length} créneau{selectedSlots.length > 1 ? "x" : ""} sélectionné{selectedSlots.length > 1 ? "s" : ""}
-                    </div>
-                    <button onClick={() => setStep(3)}
-                      className="rounded-sm bg-fiver-green px-6 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
-                      Continuer
+                  return (
+                    <button key={slot.time} disabled={fullyBooked}
+                      onClick={() => { if (!fullyBooked) { setSelectedSlot(slot.time); setTimeout(() => setStep(3), 200); } }}
+                      className={cn(
+                        "relative rounded-sm px-4 py-3 text-sm font-medium transition-colors border-2",
+                        fullyBooked && "cursor-not-allowed bg-red-500/5 text-muted-foreground/30 line-through border-transparent",
+                        !fullyBooked && !isSelected && "bg-secondary/50 text-foreground hover:border-fiver-green/50 hover:bg-fiver-green/5 border-transparent",
+                        isSelected && "bg-fiver-green/10 text-fiver-green border-fiver-green"
+                      )}>
+                      <span>{slot.time}</span>
+                      {fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-red-400/60 no-underline" style={{ textDecoration: "none" }}>Complet</span>}
+                      {!fullyBooked && <span className="mt-0.5 block text-[10px] font-normal text-fiver-green/60">{availCount} terrain{availCount > 1 ? "s" : ""} dispo</span>}
                     </button>
-                  </div>
-                )}
-              </>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -500,19 +533,19 @@ export function BookingFlow() {
             <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez votre terrain</h3>
             <div className="mx-auto flex max-w-md flex-col gap-4 sm:flex-row">
               {availablePitches.map((pitch) => {
-                // Check if ALL selected slots are available on this pitch
-                const allSlotsAvailable = selectedSlots.every(slot => !bookedSlots.has(`${pitch.id}:${slot}`));
-                const canSelect = pitch.available && allSlotsAvailable;
+                const slotAvailable = selectedSlot ? !bookedSlots.has(`${pitch.id}:${selectedSlot}`) : true;
+                const canSelect = pitch.available && slotAvailable;
+                const nextStep = mode === "abonnement" ? 4 : infoStep;
                 return (
                   <button key={pitch.id} disabled={!canSelect}
-                    onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(4), 200); } }}
+                    onClick={() => { if (canSelect) { setSelectedPitch(pitch.id); setTimeout(() => setStep(nextStep), 200); } }}
                     className={cn("flex-1 rounded-sm border-2 px-6 py-8 text-center transition-colors shadow-sm",
                       !canSelect && "cursor-not-allowed border-secondary bg-secondary text-muted-foreground/40",
                       canSelect && selectedPitch !== pitch.id && "border-border bg-card text-foreground hover:border-fiver-green/50",
                       selectedPitch === pitch.id && "border-fiver-green bg-fiver-green/10 text-foreground")}>
                     <LayoutGrid className={cn("mx-auto mb-3 h-8 w-8", canSelect && selectedPitch === pitch.id ? "text-fiver-green" : canSelect ? "text-muted-foreground" : "text-muted-foreground/30")} />
                     <span className="font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide">{pitch.id}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : !allSlotsAvailable ? "Créneau(x) pris" : "Disponible"}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{!pitch.available ? "En maintenance" : !slotAvailable ? "Créneau pris" : "Disponible"}</span>
                   </button>
                 );
               })}
@@ -520,93 +553,61 @@ export function BookingFlow() {
           </div>
         )}
 
-        {/* ─── Step 4: Recurrence ─────────── */}
-        {step === 4 && (
+        {/* ─── Step 4 (Abonnement only): Weeks ─── */}
+        {step === 4 && mode === "abonnement" && (
           <div className="animate-step">
-            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Chaque semaine ?</h3>
-            <p className="mb-6 text-center text-xs text-muted-foreground">Voulez-vous réserver le même créneau sur plusieurs semaines ?</p>
+            <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Choisissez vos semaines</h3>
+            <p className="mb-6 text-center text-xs text-muted-foreground">{selectedSlot} sur {selectedPitch} chaque semaine</p>
 
             <div className="mx-auto max-w-sm">
-              <div className="mb-6 flex flex-col items-center gap-4">
-                <div className="flex items-center gap-4 w-full">
-                  <button onClick={() => setRecurrenceWeeks(1)}
-                    className={cn("flex-1 rounded-sm border-2 px-4 py-3 text-center text-sm font-medium transition-colors",
-                      recurrenceWeeks === 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
-                    Une seule fois
-                  </button>
-                  <button onClick={() => { if (!isLoggedIn) { setError("Vous devez cr\u00e9er un compte pour r\u00e9server sur plusieurs semaines."); return; } setRecurrenceWeeks(2); setError(""); }}
-                    className={cn("flex-1 rounded-sm border-2 px-4 py-3 text-center text-sm font-medium transition-colors",
-                      recurrenceWeeks > 1 ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border bg-card text-muted-foreground hover:border-fiver-green/30")}>
-                    Plusieurs semaines
-                  </button>
-                </div>
+              <div className="flex flex-col gap-2 mb-6">
+                {Array.from({ length: maxRecurrenceWeeks }, (_, i) => {
+                  const futureDate = addWeeks(selectedDate!, i);
+                  const isFirst = i === 0;
+                  const isAvailable = weekAvailability[i] !== false;
+                  const isSelected = selectedWeekOffsets.includes(i);
 
-                {!isLoggedIn && recurrenceWeeks === 1 && (
-                  <p className="text-[11px] text-muted-foreground/70 text-center">
-                    Pour réserver sur plusieurs semaines, <a href="/compte" className="text-fiver-green underline">créez un compte</a> d&apos;abord.
-                  </p>
-                )}
-
-                {error && (
-                  <div className="w-full rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{error}</div>
-                )}
-
-                {recurrenceWeeks > 1 && selectedDate && (
-                  <div className="w-full rounded-sm border border-border bg-card p-4">
-                    <p className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Sélectionnez les semaines :</p>
-                    <div className="flex flex-col gap-2">
-                      {/* First week is always selected (the original date) */}
-                      <div className="flex items-center gap-3 rounded-sm bg-fiver-green/10 border border-fiver-green/30 px-3 py-2.5">
-                        <Check className="h-4 w-4 text-fiver-green shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">
-                            {selectedDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
-                          </p>
-                          <p className="text-[10px] text-fiver-green">Semaine 1 (sélectionnée)</p>
-                        </div>
-                      </div>
-                      {/* Additional weeks */}
-                      {Array.from({ length: maxRecurrenceWeeks - 1 }, (_, i) => {
-                        const weekNum = i + 2;
-                        const futureDate = addWeeks(selectedDate, i + 1);
-                        const isSelected = recurrenceWeeks >= weekNum;
-                        const hasConflict = recurrenceConflicts.some(c => c.includes(futureDate.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })));
-                        return (
-                          <button key={weekNum}
-                            onClick={() => setRecurrenceWeeks(isSelected ? weekNum - 1 : weekNum)}
-                            disabled={hasConflict}
-                            className={cn("flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left transition-colors",
-                              hasConflict ? "border-red-500/20 bg-red-500/5 cursor-not-allowed" :
-                              isSelected ? "border-fiver-green/30 bg-fiver-green/5" : "border-border hover:border-fiver-green/20")}>
-                            <div className={cn("h-4 w-4 rounded-sm border-2 shrink-0 flex items-center justify-center",
-                              hasConflict ? "border-red-500/30" : isSelected ? "border-fiver-green bg-fiver-green" : "border-muted-foreground/30")}>
-                              {isSelected && !hasConflict && <Check className="h-3 w-3 text-fiver-black" />}
-                            </div>
-                            <div className="flex-1">
-                              <p className={cn("text-sm font-medium", hasConflict ? "text-red-400 line-through" : "text-foreground")}>
-                                {futureDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
-                              </p>
-                              {hasConflict && <p className="text-[10px] text-red-400">Créneau déjà pris</p>}
-                              {!hasConflict && <p className="text-[10px] text-muted-foreground">Semaine {weekNum}</p>}
-                            </div>
-                          </button>
+                  return (
+                    <button key={i}
+                      disabled={!isAvailable || isFirst}
+                      onClick={() => {
+                        if (isFirst) return;
+                        setSelectedWeekOffsets(prev =>
+                          prev.includes(i) ? prev.filter(w => w !== i) : [...prev, i].sort((a, b) => a - b)
                         );
-                      })}
-                    </div>
-
-                    {checkingRecurrence && <p className="mt-3 text-xs text-muted-foreground animate-pulse">Vérification des disponibilités...</p>}
-                  </div>
-                )}
+                      }}
+                      className={cn("flex items-center gap-3 rounded-sm border px-3 py-3 text-left transition-colors",
+                        !isAvailable ? "border-red-500/20 bg-red-500/5 cursor-not-allowed opacity-60" :
+                        isFirst ? "border-fiver-green/30 bg-fiver-green/10" :
+                        isSelected ? "border-fiver-green/30 bg-fiver-green/5 hover:bg-fiver-green/10" : "border-border hover:border-fiver-green/20")}>
+                      <div className={cn("h-5 w-5 rounded border-2 shrink-0 flex items-center justify-center",
+                        !isAvailable ? "border-red-500/30 bg-red-500/10" :
+                        isSelected || isFirst ? "border-fiver-green bg-fiver-green" : "border-muted-foreground/30")}>
+                        {(isSelected || isFirst) && isAvailable && <Check className="h-3.5 w-3.5 text-fiver-black" />}
+                      </div>
+                      <div className="flex-1">
+                        <p className={cn("text-sm font-medium", !isAvailable ? "text-red-400 line-through" : "text-foreground")}>
+                          {futureDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                        </p>
+                        {isFirst && <p className="text-[10px] text-fiver-green">Semaine 1 (incluse)</p>}
+                        {!isFirst && isAvailable && <p className="text-[10px] text-muted-foreground">Semaine {i + 1}</p>}
+                        {!isAvailable && <p className="text-[10px] text-red-400">Déjà réservé</p>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
+
+              {checkingRecurrence && <p className="mb-4 text-xs text-muted-foreground animate-pulse text-center">Vérification des disponibilités...</p>}
 
               {/* Summary */}
               <div className="rounded-sm bg-secondary/80 p-4 border border-border/50 mb-4">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Total</p>
-                <p className="mt-2 text-sm text-foreground">{selectedSlots.length} créneau{selectedSlots.length > 1 ? "x" : ""} × {recurrenceWeeks} semaine{recurrenceWeeks > 1 ? "s" : ""} = <strong>{totalSessions} session{totalSessions > 1 ? "s" : ""}</strong></p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Total abonnement</p>
+                <p className="mt-2 text-sm text-foreground">{selectedSlot} × {totalSessions} semaine{totalSessions > 1 ? "s" : ""}</p>
                 <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
               </div>
 
-              <button onClick={() => { setError(""); setStep(5); }} disabled={recurrenceConflicts.length > 0}
+              <button onClick={() => { setError(""); setStep(5); }} disabled={selectedWeekOffsets.length < 2}
                 className="w-full rounded-sm bg-fiver-green py-3 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed">
                 Continuer
               </button>
@@ -614,16 +615,16 @@ export function BookingFlow() {
           </div>
         )}
 
-        {/* ─── Step 5: Infos + Payment ───── */}
-        {step === 5 && (
+        {/* ─── Step Infos + Payment ───── */}
+        {step === infoStep && (
           <div className="animate-step">
             <h3 className="mb-6 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Vos informations</h3>
             <div className="mx-auto max-w-sm flex flex-col gap-5">
               {/* Recap */}
               <div className="rounded-sm bg-secondary/80 p-4 border border-border/50">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Total</p>
-                <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlots.join(", ")} &middot; {selectedPitch}</p>
-                {recurrenceWeeks > 1 && <p className="text-xs text-muted-foreground mt-1">Chaque semaine pendant {recurrenceWeeks} semaines ({totalSessions} sessions)</p>}
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">Votre réservation</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{selectedDate?.toLocaleDateString("fr-FR")} &middot; {selectedSlot} &middot; {selectedPitch}</p>
+                {isAbonnement && <p className="text-xs text-muted-foreground mt-1">Abonnement {totalSessions} semaines</p>}
                 <p className="mt-1 font-[var(--font-heading)] text-xl font-bold text-fiver-green">{totalPrice.toLocaleString()} MRU</p>
               </div>
 
@@ -719,7 +720,7 @@ export function BookingFlow() {
         )}
       </div>
 
-      {step > 1 && !confirmed && (
+      {step > 0 && !confirmed && (
         <div className="mt-8 flex justify-center">
           <button onClick={handlePrev} className="flex items-center gap-2 rounded-full border border-border bg-card px-6 py-2 text-xs font-bold uppercase tracking-widest text-muted-foreground transition-all hover:border-fiver-green hover:text-foreground">
             <ChevronLeft className="h-3.5 w-3.5" /> Retour
