@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       service: 'gmail',
       auth: {
         user: 'contact.fiveur@gmail.com',
-        pass: 'wmkt tput cpfy dtpd',
+        pass: 'mzwq aifm wxvl yzqm',
       },
     });
 
