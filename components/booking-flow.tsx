@@ -395,7 +395,7 @@ export function BookingFlow() {
         <h3 className="mb-2 text-center font-[var(--font-heading)] text-lg font-semibold uppercase tracking-wide text-foreground">Réserver un terrain</h3>
         <p className="mb-8 text-center text-xs text-muted-foreground">Choisissez votre type de réservation</p>
         <div className="mx-auto max-w-md flex flex-col gap-4 sm:flex-row">
-          <button onClick={() => { setMode("normal"); setRecurrenceWeeks(1); setStep(1); }}
+          <button onClick={() => { setMode("normal"); setSelectedWeekOffsets([0]); setStep(1); }}
             className="flex-1 rounded-sm border-2 border-border bg-card px-6 py-8 text-center transition-all hover:border-fiver-green/50 hover:bg-fiver-green/5 group">
             <Calendar className="mx-auto mb-3 h-8 w-8 text-muted-foreground group-hover:text-fiver-green transition-colors" />
             <span className="block font-[var(--font-heading)] text-lg font-bold uppercase tracking-wide text-foreground">Réservation</span>
