@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { CalendarCheck, Clock, MapPin, MessageCircle, AlertCircle } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
@@ -79,11 +80,16 @@ export default function ClientDashboardPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-[var(--font-heading)] text-xl font-bold uppercase tracking-tight text-white sm:text-2xl">
-          Mes Réservations
-        </h1>
-        <p className="mt-1 text-sm text-white/40">{reservations.length} réservation(s) au total</p>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="font-[var(--font-heading)] text-xl font-bold uppercase tracking-tight text-white sm:text-2xl">
+            Mes Réservations
+          </h1>
+          <p className="mt-1 text-sm text-white/40">{reservations.length} réservation(s) au total</p>
+        </div>
+        <Link href="/#booking" className="inline-flex items-center justify-center gap-2 rounded-sm bg-fiver-green px-5 py-2.5 text-xs font-bold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90 shadow-[0_0_15px_rgba(80,200,120,0.2)]">
+          <CalendarCheck className="h-4 w-4" /> Réserver un terrain
+        </Link>
       </div>
 
       {/* Stats cards */}

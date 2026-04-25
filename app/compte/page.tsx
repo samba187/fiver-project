@@ -129,10 +129,16 @@ export default function ComptePage() {
       return;
     }
 
+    // Obtenir l'URL de base pour la redirection
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+
     // Créer le compte Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${siteUrl}/compte/dashboard`,
+      }
     });
 
     if (authError) {
@@ -161,6 +167,12 @@ export default function ComptePage() {
 
     if (profileError) {
       setError("Compte créé mais erreur lors de la sauvegarde du profil. Contactez l'administration.");
+      setLoading(false);
+      return;
+    }
+
+    if (!authData.session) {
+      setSuccess("Compte créé avec succès ! Un lien de confirmation a été envoyé à votre adresse email. Si vous avez désactivé la confirmation email dans Supabase, veuillez vous connecter manuellement.");
       setLoading(false);
       return;
     }
