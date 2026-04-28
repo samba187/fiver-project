@@ -76,10 +76,6 @@ export function BookingFlow() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Auth state
-  const [userId, setUserId] = useState<string | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-
   // Dynamic settings
   const [openHour, setOpenHour] = useState(16);
   const [closeHour, setCloseHour] = useState(24);
@@ -129,25 +125,6 @@ export function BookingFlow() {
 
   // Map logical step to actual step for normal mode (skip weeks step)
   const infoStep = mode === "abonnement" ? 5 : 4;
-
-  // Check auth
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (data.user) {
-        const email = data.user.email?.toLowerCase() || "";
-        if (!email.includes("admin") && !email.includes("staff")) {
-          setUserId(data.user.id);
-          setIsLoggedIn(true);
-          const { data: profile } = await supabase.from("user_profiles").select("name, phone, email").eq("id", data.user.id).single();
-          if (profile) {
-            setName(profile.name);
-            setPhone(profile.phone);
-            setEmail(profile.email);
-          }
-        }
-      }
-    });
-  }, []);
 
   // Fetch settings
   useEffect(() => {
@@ -309,7 +286,7 @@ export function BookingFlow() {
           pitch: selectedPitch, status: "pending",
           payment_method: paymentMethod, total_price: currentPrice,
           amount_paid: 0, payment_confirmed: false,
-          user_id: userId, is_recurring: selectedWeekOffsets.length > 1,
+          is_recurring: selectedWeekOffsets.length > 1,
           recurrence_group: recurrenceGroup,
           deposit_amount: Math.round(declaredDeposit / totalSessions),
         });
@@ -402,10 +379,6 @@ export function BookingFlow() {
             <span className="mt-2 block text-xs text-muted-foreground">Une soirée, un créneau</span>
           </button>
           <button onClick={() => {
-            if (!isLoggedIn) {
-              setError("Vous devez créer un compte pour prendre un abonnement.");
-              return;
-            }
             setMode("abonnement"); setSelectedWeekOffsets([0]); setStep(1); setError("");
           }}
             className="flex-1 rounded-sm border-2 border-border bg-card px-6 py-8 text-center transition-all hover:border-fiver-green/50 hover:bg-fiver-green/5 group">
@@ -414,11 +387,6 @@ export function BookingFlow() {
             <span className="mt-2 block text-xs text-muted-foreground">Même créneau, plusieurs semaines</span>
           </button>
         </div>
-        {!isLoggedIn && (
-          <p className="mt-6 text-center text-[11px] text-muted-foreground/70">
-            Pour l&apos;abonnement, <a href="/compte" className="text-fiver-green underline">créez un compte</a> d&apos;abord.
-          </p>
-        )}
         {error && (
           <div className="mt-4 mx-auto max-w-md rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400 text-center">{error}</div>
         )}
@@ -633,20 +601,20 @@ export function BookingFlow() {
                 <div>
                   <label htmlFor="booking-name" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Nom complet *</label>
                   <input id="booking-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} required
-                    disabled={isLoggedIn} placeholder="Votre nom complet"
-                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
+                    placeholder="Votre nom complet"
+                    className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
                 </div>
                 <div>
                   <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Téléphone *</label>
                   <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required
-                    disabled={isLoggedIn} placeholder="Ex: 48 81 38 22"
-                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
+                    placeholder="Ex: 48 81 38 22"
+                    className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
                 </div>
                 <div>
                   <label htmlFor="booking-email" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Email (Optionnel)</label>
                   <input id="booking-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={100}
-                    disabled={isLoggedIn} placeholder="Pour recevoir votre reçu"
-                    className={cn("w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green", isLoggedIn && "opacity-60 cursor-not-allowed")} />
+                    placeholder="Pour recevoir votre reçu"
+                    className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
                 </div>
               </div>
 

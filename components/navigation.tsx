@@ -4,9 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Menu, X, UserCircle } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
 
 const navLinks = [
   { href: "/", label: "Accueil" },
@@ -20,24 +19,6 @@ const navLinks = [
 export function Navigation() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [clientName, setClientName] = useState("");
-
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (data.user) {
-        const email = data.user.email?.toLowerCase() || "";
-        if (email.includes("admin") || email.includes("staff")) {
-          setIsAdmin(true);
-        } else {
-          setIsLoggedIn(true);
-          const { data: profile } = await supabase.from("user_profiles").select("name").eq("id", data.user.id).single();
-          if (profile) setClientName(profile.name);
-        }
-      }
-    });
-  }, []);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-fiver-black/95 backdrop-blur-sm">
@@ -69,11 +50,6 @@ export function Navigation() {
           <Link href="/#booking"
             className="rounded-sm bg-fiver-green px-5 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
             Reserver
-          </Link>
-          <Link href={isLoggedIn ? "/compte/dashboard" : "/compte"}
-            className="flex items-center gap-1.5 rounded-sm border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 transition-colors hover:border-fiver-green/30 hover:text-white">
-            <UserCircle className="h-4 w-4" />
-            {isLoggedIn ? (clientName?.split(" ")[0] || "Mon Compte") : "Mon Compte"}
           </Link>
         </div>
 
@@ -111,11 +87,6 @@ export function Navigation() {
               <Link href="/#booking" onClick={() => setMobileOpen(false)}
                 className="block rounded-sm bg-fiver-green py-3 text-center text-sm font-semibold uppercase tracking-wide text-fiver-black">
                 Reserver un terrain
-              </Link>
-              <Link href={isLoggedIn ? "/compte/dashboard" : "/compte"} onClick={() => setMobileOpen(false)}
-                className="flex items-center justify-center gap-2 rounded-sm border border-white/10 bg-white/5 py-3 text-sm font-medium text-white/70">
-                <UserCircle className="h-4 w-4" />
-                {isLoggedIn ? "Mon Espace" : "Mon Compte"}
               </Link>
             </li>
           </ul>
