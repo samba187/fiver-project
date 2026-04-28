@@ -302,7 +302,7 @@ export function BookingFlow() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "reservation",
-            data: { name: trimmedName, phone: cleanPhone, email, date: formatDateStr(selectedDate), time: selectedSlot, pitch: selectedPitch, amount: totalPrice, sessions: totalSessions, recurrence: recurrenceWeeks > 1 },
+            data: { name: trimmedName, phone: cleanPhone, email, date: formatDateStr(selectedDate), time: selectedSlot, pitch: selectedPitch, amount: totalPrice, sessions: totalSessions, recurrence: selectedWeekOffsets.length > 1 },
             origin: window.location.origin,
           }),
         });
