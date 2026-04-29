@@ -112,7 +112,7 @@ export function InscriptionForm() {
         <label htmlFor="parent-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-fiver-black/60">
           Téléphone du parent
         </label>
-        <input id="parent-phone" type="tel" required value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="Ex: 48 81 38 22"
+        <input id="parent-phone" type="tel" required value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="Ex: XX XX XX XX"
           className="w-full rounded-sm border border-fiver-black/20 bg-card px-4 py-2.5 text-sm text-fiver-black placeholder:text-fiver-black/30 focus:border-fiver-black focus:outline-none focus:ring-1 focus:ring-fiver-black" />
       </div>
 
