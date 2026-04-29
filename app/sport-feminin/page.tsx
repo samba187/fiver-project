@@ -232,7 +232,7 @@ export default function SportFemininPage() {
                 </div>
                 <div>
                   <label htmlFor="phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Numéro de téléphone *</label>
-                  <input id="phone" type="tel" required value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="+222 XX XX XX XX" className={inputClass} />
+                  <input id="phone" type="tel" required value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="XX XX XX XX" className={inputClass} />
                 </div>
               </div>
 
