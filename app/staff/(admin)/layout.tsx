@@ -14,6 +14,7 @@ import {
   Settings,
   LogOut,
   Menu,
+  X,
   BarChart3,
   Trash2,
   Heart,
