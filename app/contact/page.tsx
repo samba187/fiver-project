@@ -211,7 +211,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <label htmlFor="contact-phone" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Téléphone *</label>
-                  <input id="contact-phone" type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="+222 XX XX XX XX" className={inputClass} />
+                  <input id="contact-phone" type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" placeholder="XX XX XX XX" className={inputClass} />
                 </div>
               </div>
 
