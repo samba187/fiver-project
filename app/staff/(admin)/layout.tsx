@@ -14,9 +14,9 @@ import {
   Settings,
   LogOut,
   Menu,
-  X,
   BarChart3,
   Trash2,
+  Heart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -26,6 +26,7 @@ const SIDEBAR_LINKS = [
   { href: "/staff/reservations", label: "Réservations", icon: CalendarCheck },
   { href: "/staff/academy-pro", label: "Academy & Loisirs", icon: ClipboardList },
   { href: "/staff/contacts", label: "Messages", icon: MessageCircle },
+  { href: "/staff/sport-feminin", label: "Sport Féminin", icon: Heart },
   { href: "/staff/terrains", label: "Terrains", icon: LayoutGrid },
   { href: "/staff/clients", label: "Clients", icon: Users },
   { href: "/staff/rapports", label: "Rapports", icon: BarChart3 },

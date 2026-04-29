@@ -139,6 +139,20 @@ export async function POST(request: Request) {
         `${siteUrl}/staff/loisirs`,
         "Gérer les Loisirs"
       );
+    } else if (type === 'sport_feminin') {
+      subject = '💖 Inscription Sport Féminin : ' + data.prenom + ' ' + data.nom;
+      html = buildEmail(
+        'Nouvelle Inscription Sport Féminin',
+        {
+          "Inscrite": `${data.prenom} ${data.nom}`,
+          "Date Naissance": data.dateNaissance || '',
+          "Téléphone": data.telephone || '',
+          "Enfant inscrit": data.enfantInscrit ? `Oui (-20%) : ${data.enfantNomPrenom}` : 'Non',
+          "Tarif": data.tarif || ''
+        },
+        `${siteUrl}/staff/sport-feminin`,
+        "Gérer les inscriptions"
+      );
     }
 
     await transporter.sendMail({

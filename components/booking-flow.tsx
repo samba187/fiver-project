@@ -351,7 +351,7 @@ export function BookingFlow() {
           {paymentType === "deposit" && (
             <p className="mb-3 text-xs text-yellow-500/90">Reste à payer : {(totalPrice - declaredDeposit).toLocaleString()} MRU</p>
           )}
-          <a href={`https://wa.me/22248869279?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
+          <a href={`https://wa.me/22248813822?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
             target="_blank" rel="noreferrer"
             className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors">
             Envoyer mon reçu {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}

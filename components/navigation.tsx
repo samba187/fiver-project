@@ -11,6 +11,7 @@ const navLinks = [
   { href: "/", label: "Accueil" },
   { href: "/concept", label: "Concept" },
   { href: "/academy", label: "Fiveur Academy" },
+  { href: "/sport-feminin", label: "Sport Féminin" },
   { href: "/centre-de-loisirs", label: "Centre de Loisirs" },
   { href: "/solidarite", label: "Solidarity" },
   { href: "/contact", label: "Contact" },
