@@ -607,7 +607,7 @@ export function BookingFlow() {
                 <div>
                   <label htmlFor="booking-phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Téléphone *</label>
                   <input id="booking-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={15} inputMode="tel" required
-                    placeholder="Ex: XX XX XX XX"
+                    placeholder="XX XX XX XX"
                     className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
                 </div>
                 <div>
