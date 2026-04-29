@@ -16,6 +16,10 @@
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
+  -- Ajout de la colonne au cas où la table existait déjà sans cette colonne
+  ALTER TABLE sport_feminin_inscriptions 
+    ADD COLUMN IF NOT EXISTS enfant_nom_prenom TEXT;
+
   -- Sécurité (RLS)
   ALTER TABLE sport_feminin_inscriptions ENABLE ROW LEVEL SECURITY;
 
