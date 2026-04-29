@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar } from "lucide-react";
+import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Inscription {
@@ -53,6 +53,70 @@ export default function SportFemininAdminPage() {
       .delete()
       .eq("id", id);
     if (!error) fetchInscriptions();
+  }
+
+  function handlePrint(ins: Inscription) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const tarif = ins.enfant_inscrit ? "800 MRU" : "1000 MRU";
+    const montantTotal = ins.enfant_inscrit ? 800 : 1000;
+    const dateFormatted = new Date().toLocaleDateString("fr-FR");
+    const recuNum = `REC-SF-${String(ins.id).padStart(4, "0")}`;
+
+    const win = window.open("", "_blank", "width=800,height=600");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Facture ${recuNum}</title><style>
+      * { margin:0; padding:0; box-sizing:border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+      body { padding: 40px; color: #1a1a1a; }
+      .receipt { max-width: 600px; margin: 0 auto; position: relative; }
+      .header { text-align: center; margin-bottom: 24px; border-bottom: 3px solid #c81054; padding-bottom: 16px; }
+      .header h1 { font-size: 24px; font-weight: 800; color: #c81054; }
+      .header p { font-size: 12px; color: #666; margin-top: 4px; }
+      .meta { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 13px; }
+      .section-title { background: #c81054; color: white; padding: 6px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 8px; }
+      .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #eee; }
+      .total { background: #fdf2f8; border: 2px solid #c81054; padding: 12px; text-align: center; margin: 20px 0; border-radius: 4px; }
+      .total .amount { font-size: 28px; font-weight: 800; color: #c81054; }
+      .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 12px; }
+      @media print { body { padding: 20px; } }
+    </style></head><body>
+      <div class="receipt">
+        <div class="header">
+          <h1 style="text-transform: uppercase;">Sport Féminin</h1>
+          <p>Fiveur Arena — Nouakchott, Mauritanie</p>
+          <h2 style="font-size: 18px; font-weight: 700; margin-top: 12px;">FACTURE / REÇU</h2>
+        </div>
+        <div class="meta">
+          <span><strong>N° :</strong> ${recuNum}</span>
+          <span><strong>Date :</strong> ${dateFormatted}</span>
+        </div>
+        <div class="section-title">Informations de l'Inscrite</div>
+        <div>
+          <div class="row"><span style="color:#666">Nom et Prénom :</span><span style="font-weight:600;text-transform:uppercase">${ins.prenom} ${ins.nom}</span></div>
+          <div class="row"><span style="color:#666">Téléphone :</span><span style="font-weight:600">${ins.telephone}</span></div>
+          ${ins.enfant_inscrit ? `<div class="row"><span style="color:#666">Enfant inscrit (Academy) :</span><span style="font-weight:600">${ins.enfant_nom_prenom || "Oui"}</span></div>` : ""}
+        </div>
+        <div class="section-title">Détail</div>
+        <div>
+          <div class="row"><span>Abonnement Mensuel Sport Féminin</span><span style="font-weight:600">1000 MRU</span></div>
+          ${ins.enfant_inscrit ? `<div class="row" style="color:#c81054"><span>Réduction Maman (-20%)</span><span style="font-weight:700">- 200 MRU</span></div>` : ""}
+        </div>
+        <div class="total">
+          <p style="font-size:12px;color:#666;text-transform:uppercase">MONTANT TOTAL PAYÉ</p>
+          <p class="amount">${montantTotal} MRU</p>
+        </div>
+        <div style="text-align:center; padding:12px 0;">
+          <span style="display:inline-block; padding:6px 16px; border-radius:20px; font-weight:700; font-size:14px; background:#dcfce7; color:#166534;">
+            ✅ Payé et Confirmé
+          </span>
+        </div>
+        <div class="footer">
+          Ce document est généré de manière automatique et électronique, il tient lieu de preuve de paiement certifiée.<br/>
+          Fiveur Arena — Sport Féminin
+        </div>
+      </div>
+    </body></html>`);
+    win.document.close();
+    setTimeout(() => { win.print(); }, 500);
   }
 
   const filtered = inscriptions.filter((i) => {
@@ -229,6 +293,15 @@ export default function SportFemininAdminPage() {
                             className="rounded-md bg-fiver-green/10 px-3 py-1.5 text-xs font-medium text-fiver-green hover:bg-fiver-green/20 transition-colors"
                           >
                             Confirmer
+                          </button>
+                        )}
+                        {ins.statut === "confirmé" && (
+                          <button
+                            onClick={() => handlePrint(ins)}
+                            className="flex items-center gap-1.5 rounded-md bg-[#c81054]/10 px-3 py-1.5 text-xs font-medium text-[#c81054] hover:bg-[#c81054]/20 transition-colors"
+                            title="Générer la facture"
+                          >
+                            <Printer className="h-3.5 w-3.5" /> Facture
                           </button>
                         )}
                         {ins.statut !== "annulé" && (
