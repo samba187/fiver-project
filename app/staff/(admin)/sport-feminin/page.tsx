@@ -67,8 +67,8 @@ export default function SportFemininAdminPage() {
     win.document.write(`<!DOCTYPE html><html><head><title>Facture ${recuNum}</title><style>
       * { margin:0; padding:0; box-sizing:border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
       body { padding: 40px; color: #1a1a1a; }
-      .receipt { max-width: 600px; margin: 0 auto; position: relative; }
-      .header { text-align: center; margin-bottom: 24px; border-bottom: 3px solid #c81054; padding-bottom: 16px; }
+      .receipt { max-width: 600px; margin: 0 auto; position: relative; z-index: 1; }
+      .header { text-align: center; margin-bottom: 24px; border-bottom: 3px solid #c81054; padding-bottom: 16px; position: relative; z-index: 10; }
       .header h1 { font-size: 24px; font-weight: 800; color: #c81054; }
       .header p { font-size: 12px; color: #666; margin-top: 4px; }
       .meta { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 13px; }
@@ -76,11 +76,15 @@ export default function SportFemininAdminPage() {
       .row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #eee; }
       .total { background: #fdf2f8; border: 2px solid #c81054; padding: 12px; text-align: center; margin: 20px 0; border-radius: 4px; }
       .total .amount { font-size: 28px; font-weight: 800; color: #c81054; }
-      .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 12px; }
+      .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #999; border-top: 1px solid #eee; padding-top: 12px; position: relative; z-index: 10; }
       @media print { body { padding: 20px; } }
     </style></head><body>
       <div class="receipt">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.05; pointer-events: none; z-index: -1;">
+          <img src="${origin}/images/fiveur-academy-logo.png" alt="Watermark" style="width: 320px; height: auto;" />
+        </div>
         <div class="header">
+          <img src="${origin}/images/fiveur-academy-logo.png" alt="Fiveur Academy" style="height: 48px; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto;" />
           <h1 style="text-transform: uppercase;">Sport Féminin</h1>
           <p>Fiveur Arena — Nouakchott, Mauritanie</p>
           <h2 style="font-size: 18px; font-weight: 700; margin-top: 12px;">FACTURE / REÇU</h2>
@@ -98,7 +102,7 @@ export default function SportFemininAdminPage() {
         <div class="section-title">Détail</div>
         <div>
           <div class="row"><span>Abonnement Mensuel Sport Féminin</span><span style="font-weight:600">1000 MRU</span></div>
-          ${ins.enfant_inscrit ? `<div class="row" style="color:#c81054"><span>Réduction Maman (-20%)</span><span style="font-weight:700">- 200 MRU</span></div>` : ""}
+          ${ins.enfant_inscrit ? `<div class="row" style="color:#c81054"><span>Réduction Parent Academy (-20%)</span><span style="font-weight:700">- 200 MRU</span></div>` : ""}
         </div>
         <div class="total">
           <p style="font-size:12px;color:#666;text-transform:uppercase">MONTANT TOTAL PAYÉ</p>
