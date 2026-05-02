@@ -419,7 +419,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                 <div style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{item.method.toUpperCase()}</span>
                   <span>•</span>
-                  <span>Réglé le {new Date(item.date).toLocaleDateString("fr-FR")}</span>
+                  <span>Réglé le {item.date ? new Date(item.date).toLocaleDateString("fr-FR") : "N/A"}</span>
                 </div>
               </div>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{item.amount} MRU</span>
@@ -449,9 +449,6 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     if (!invoicePlayer) return;
     const selected = invoiceItems.filter(i => i.selected);
     if (selected.length === 0) return;
-
-    // Open window synchronously to avoid popup blocker
-    const newWindow = window.open("about:blank", "_blank");
 
     setIsGeneratingInvoice(true);
 
@@ -517,13 +514,8 @@ Merci de votre confiance !`;
         if (phone.length === 8) phone = "222" + phone;
         
         const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-        if (newWindow) {
-          newWindow.location.href = waUrl;
-        } else {
-          window.location.href = waUrl;
-        }
+        window.open(waUrl, "_blank");
       } catch (err) {
-        if (newWindow) newWindow.close();
         console.error("Erreur génération PDF:", err);
         alert("Une erreur est survenue lors de la génération du PDF.");
       } finally {
