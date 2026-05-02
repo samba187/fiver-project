@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import * as htmlToImage from "html-to-image";
@@ -89,6 +89,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
   const [quickPayTarget, setQuickPayTarget] = useState<{ type: "month" | "frais"; monthStr?: string } | null>(null);
   const [quickPayMontant, setQuickPayMontant] = useState(0);
   const [quickPayMoyen, setQuickPayMoyen] = useState("Cash");
+  const [quickPayDate, setQuickPayDate] = useState(new Date().toISOString().split("T")[0]);
   const [quickPaySaving, setQuickPaySaving] = useState(false);
 
   // Invoice Modal State
@@ -208,6 +209,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     setQuickPayPlayer(r);
     setQuickPayMontant(remaining > 0 ? remaining : r.tarif_total);
     setQuickPayMoyen("Cash");
+    setQuickPayDate(new Date().toISOString().split("T")[0]);
     setQuickPayOpen(true);
   }
 
@@ -217,6 +219,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     setQuickPayPlayer(r);
     setQuickPayMontant(r.frais_inscription);
     setQuickPayMoyen("Cash");
+    setQuickPayDate(new Date().toISOString().split("T")[0]);
     setQuickPayOpen(true);
   }
 
@@ -230,14 +233,15 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         mois_concerne: quickPayTarget.monthStr,
         montant: quickPayMontant,
         moyen_paiement: quickPayMoyen || "Cash",
-        description: "Mensualité"
+        description: "Mensualité",
+        date_paiement: new Date(quickPayDate + "T12:00:00Z").toISOString()
       });
       // Legacy compat for current month
       const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
       if (quickPayTarget.monthStr === currentMonth) {
         await supabase.from("academy_registrations").update({
           montant_paye: quickPayMontant,
-          date_paiement: new Date().toISOString().split("T")[0],
+          date_paiement: quickPayDate,
           statut_paiement: "paye"
         }).eq("id", quickPayPlayer.id);
       }
@@ -248,7 +252,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         mois_concerne: "FRAIS",
         montant: quickPayMontant,
         moyen_paiement: quickPayMoyen || "Cash",
-        description: "Frais d'inscription"
+        description: "Frais d'inscription",
+        date_paiement: new Date(quickPayDate + "T12:00:00Z").toISOString()
       });
     }
 
@@ -291,7 +296,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         selected: false,
         isFrais: true,
         method: fraisP?.moyen_paiement || "Cash",
-        date: fraisP?.created_at || String(r.created_at)
+        date: fraisP?.date_paiement || String(r.created_at)
       });
     }
 
@@ -302,12 +307,12 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         const existing = monthMap.get(h.mois_concerne);
         if (existing) {
           existing.amount += h.montant;
-          if (new Date(h.created_at) > new Date(existing.date)) {
+          if (new Date(h.date_paiement) > new Date(existing.date)) {
             existing.method = h.moyen_paiement || "Cash";
-            existing.date = h.created_at;
+            existing.date = h.date_paiement;
           }
         } else {
-          monthMap.set(h.mois_concerne, { amount: h.montant, method: h.moyen_paiement || "Cash", date: h.created_at });
+          monthMap.set(h.mois_concerne, { amount: h.montant, method: h.moyen_paiement || "Cash", date: h.date_paiement });
         }
       }
     });
@@ -413,6 +418,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                 <div style={{ fontSize: 15, color: "#333", fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
                 <div style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{item.method.toUpperCase()}</span>
+                  <span>•</span>
+                  <span>Réglé le {new Date(item.date).toLocaleDateString("fr-FR")}</span>
                 </div>
               </div>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{item.amount} MRU</span>
@@ -442,6 +449,9 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     if (!invoicePlayer) return;
     const selected = invoiceItems.filter(i => i.selected);
     if (selected.length === 0) return;
+
+    // Open window synchronously to avoid popup blocker
+    const newWindow = window.open("about:blank", "_blank");
 
     setIsGeneratingInvoice(true);
 
@@ -503,9 +513,17 @@ ${pdfUrlLine ? `\nLien vers votre reçu PDF :\n${pdfUrlLine.replace('\n', '')}` 
 
 Merci de votre confiance !`;
 
-        const phone = formatPhone(invoicePlayer.telephone_parent);
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+        let phone = formatPhone(invoicePlayer.telephone_parent);
+        if (phone.length === 8) phone = "222" + phone;
+        
+        const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+        if (newWindow) {
+          newWindow.location.href = waUrl;
+        } else {
+          window.location.href = waUrl;
+        }
       } catch (err) {
+        if (newWindow) newWindow.close();
         console.error("Erreur génération PDF:", err);
         alert("Une erreur est survenue lors de la génération du PDF.");
       } finally {
@@ -641,6 +659,19 @@ Merci de votre confiance !`;
                           </button>
                         );
                       })}
+                      
+                      {(() => {
+                        const history = (r.academy_payments_history || []).filter(h => h.mois_concerne !== "FRAIS");
+                        if (history.length === 0) return null;
+                        const sorted = [...history].sort((a, b) => new Date(b.date_paiement).getTime() - new Date(a.date_paiement).getTime());
+                        const lastPaymentDate = sorted[0].date_paiement;
+                        return (
+                          <div className="ml-2 pl-2 border-l border-white/10 text-[10px] text-white/40 flex items-center gap-1" title="Dernier encaissement (Mensualité)">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(lastPaymentDate).toLocaleDateString("fr-FR")}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </td>
                   <td className="px-3 py-3 text-center">
@@ -713,6 +744,16 @@ Merci de votre confiance !`;
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-white/40">Date d'encaissement</label>
+                  <input
+                    type="date"
+                    value={quickPayDate}
+                    onChange={e => setQuickPayDate(e.target.value)}
+                    className="w-full rounded-xl border-2 border-white/10 bg-[#0f0f0f] px-4 py-3 text-center font-mono font-bold text-white focus:border-fiver-green focus:outline-none"
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">

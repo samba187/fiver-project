@@ -66,6 +66,7 @@ export default function SportFemininAdminPage() {
   const [quickPayTarget, setQuickPayTarget] = useState<string | null>(null);
   const [quickPayMontant, setQuickPayMontant] = useState(0);
   const [quickPayMoyen, setQuickPayMoyen] = useState("Cash");
+  const [quickPayDate, setQuickPayDate] = useState(new Date().toISOString().split("T")[0]);
   const [quickPaySaving, setQuickPaySaving] = useState(false);
 
   // Invoice Modal State
@@ -120,6 +121,7 @@ export default function SportFemininAdminPage() {
     setQuickPayPlayer(r);
     setQuickPayMontant(remaining > 0 ? remaining : tarifTotal);
     setQuickPayMoyen("Cash");
+    setQuickPayDate(new Date().toISOString().split("T")[0]);
     setQuickPayOpen(true);
   }
 
@@ -132,7 +134,8 @@ export default function SportFemininAdminPage() {
       mois_concerne: quickPayTarget,
       montant: quickPayMontant,
       moyen_paiement: quickPayMoyen || "Cash",
-      description: "Abonnement Mensuel"
+      description: "Abonnement Mensuel",
+      created_at: new Date(quickPayDate + "T12:00:00Z").toISOString()
     });
 
     if (quickPayPlayer.statut === "en_attente") {
@@ -267,6 +270,8 @@ export default function SportFemininAdminPage() {
                 <div style={{ fontSize: 15, color: "#333", fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
                 <div style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ background: "#fdf2f8", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{item.method.toUpperCase()}</span>
+                  <span>•</span>
+                  <span>Réglé le {new Date(item.date).toLocaleDateString("fr-FR")}</span>
                 </div>
               </div>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{item.amount} MRU</span>
@@ -296,6 +301,9 @@ export default function SportFemininAdminPage() {
     if (!invoicePlayer) return;
     const selected = invoiceItems.filter(i => i.selected);
     if (selected.length === 0) return;
+
+    // Open window synchronously to avoid popup blocker
+    const newWindow = window.open("about:blank", "_blank");
 
     setIsGeneratingInvoice(true);
     
@@ -359,8 +367,15 @@ Merci de votre confiance !`;
         
         let phone = invoicePlayer.telephone.replace(/[^0-9]/g, "");
         if (phone.length === 8) phone = "222" + phone;
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+        
+        const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+        if (newWindow) {
+          newWindow.location.href = waUrl;
+        } else {
+          window.location.href = waUrl;
+        }
       } catch (err) {
+        if (newWindow) newWindow.close();
         console.error("Erreur génération PDF:", err);
         alert("Une erreur est survenue lors de la génération du PDF.");
       } finally {
@@ -574,6 +589,19 @@ Merci de votre confiance !`;
                           </button>
                         );
                       })}
+
+                      {(() => {
+                        const history = ins.sport_feminin_payments_history || [];
+                        if (history.length === 0) return null;
+                        const sorted = [...history].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                        const lastPaymentDate = sorted[0].created_at;
+                        return (
+                          <div className="ml-2 pl-2 border-l border-white/10 text-[10px] text-white/40 flex items-center gap-1" title="Dernier encaissement">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(lastPaymentDate).toLocaleDateString("fr-FR")}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center">
@@ -651,6 +679,16 @@ Merci de votre confiance !`;
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="mb-2 block text-xs font-semibold text-white/40 uppercase">Date d'encaissement</label>
+              <input
+                type="date"
+                value={quickPayDate}
+                onChange={e => setQuickPayDate(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none"
+              />
             </div>
 
               <div className="grid grid-cols-1 gap-3">
