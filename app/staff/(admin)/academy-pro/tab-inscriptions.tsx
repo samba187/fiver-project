@@ -514,7 +514,7 @@ Merci de votre confiance !`;
         if (phone.length === 8) phone = "222" + phone;
         
         const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-        window.open(waUrl, "_blank");
+        window.location.href = waUrl;
       } catch (err) {
         console.error("Erreur génération PDF:", err);
         alert("Une erreur est survenue lors de la génération du PDF.");
