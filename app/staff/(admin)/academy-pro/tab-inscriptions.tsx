@@ -592,7 +592,7 @@ Merci de votre confiance !`;
               <th className="px-3 py-4">Nom Complet</th>
               <th className="px-3 py-4">Âge</th>
               <th className="px-3 py-4">Cat.</th>
-              <th className="px-3 py-4">Tarif</th>
+              <th className="px-3 py-4">Payé</th>
               <th className="px-3 py-4 min-w-[340px]">Paiements (Saison {currentYear})</th>
               <th className="px-3 py-4 w-24 text-center">Actions</th>
             </tr>
@@ -621,7 +621,12 @@ Merci de votre confiance !`;
                   <td className="px-3 py-3">
                     {r.categorie_foot ? <span className="rounded bg-fiver-green/10 px-2 py-0.5 text-[10px] font-bold text-fiver-green">{r.categorie_foot}</span> : <span className="text-white/20">—</span>}
                   </td>
-                  <td className="px-3 py-3 text-sm font-mono font-bold text-white/70">{r.tarif_total.toLocaleString()}</td>
+                  <td className="px-3 py-3 text-sm font-mono font-bold text-white/70">
+                    {(() => {
+                      const totalEncaisse = (r.academy_payments_history || []).reduce((acc, h) => acc + h.montant, 0);
+                      return totalEncaisse.toLocaleString();
+                    })()}
+                  </td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap items-center gap-1">
                       <button

@@ -504,7 +504,7 @@ Merci de votre confiance !`;
             <tr className="border-b border-white/10 bg-white/[0.02] text-[11px] font-bold uppercase tracking-wider text-white/40">
               <th className="px-4 py-4 w-[200px]">Nom Complet</th>
               <th className="px-4 py-4 w-[120px]">Téléphone</th>
-              <th className="px-4 py-4 w-[120px] text-center">Tarif</th>
+              <th className="px-4 py-4 w-[120px] text-center">Payé</th>
               <th className="px-4 py-4 min-w-[340px]">Paiements (Saison {currentYear})</th>
               <th className="px-4 py-4 w-32 text-center">Actions</th>
             </tr>
@@ -545,20 +545,19 @@ Merci de votre confiance !`;
                     </div>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {ins.enfant_inscrit ? (
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="inline-flex rounded bg-emerald-500/10 px-2 py-1 text-xs font-bold text-emerald-400">
-                          800 MRU
-                        </span>
-                        {ins.enfant_nom_prenom && (
-                          <span className="text-[10px] text-white/40 max-w-[100px] truncate" title={ins.enfant_nom_prenom}>{ins.enfant_nom_prenom}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="inline-flex rounded bg-white/10 px-2 py-1 text-xs font-bold text-white/60">
-                        1000 MRU
-                      </span>
-                    )}
+                    {(() => {
+                      const totalEncaisse = (ins.sport_feminin_payments_history || []).reduce((acc, h) => acc + h.montant, 0);
+                      return (
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="inline-flex rounded bg-[#c81054]/20 px-2 py-1 text-xs font-bold text-[#fbcfe8]">
+                            {totalEncaisse} MRU
+                          </span>
+                          {ins.enfant_inscrit && ins.enfant_nom_prenom && (
+                            <span className="text-[10px] text-white/40 max-w-[100px] truncate" title={ins.enfant_nom_prenom}>Lié: {ins.enfant_nom_prenom}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-1">
