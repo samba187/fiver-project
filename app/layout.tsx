@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Oswald } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
+import { APP_VERSION } from "@/lib/version";
 import "./globals.css";
 
 const _inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -35,6 +36,9 @@ export default function RootLayout({
         className={`${_inter.variable} ${_oswald.variable} font-sans antialiased overflow-x-hidden`}
       >
         {children}
+        <div className="fixed bottom-2 right-2 text-[10px] text-white/20 font-mono pointer-events-none z-50">
+          {APP_VERSION}
+        </div>
         <Analytics />
       </body>
     </html>
