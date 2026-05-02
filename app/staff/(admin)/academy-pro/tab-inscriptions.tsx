@@ -2,14 +2,23 @@
 
 import { useMemo, useState, useRef } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import * as htmlToImage from "html-to-image";
+import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
 
 const inputClass = "w-full rounded-md border border-white/10 bg-[#1a1a1a] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green transition-colors";
 const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
 const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
+
+const ALL_MONTHS = [
+  { val: "01", label: "Jan" }, { val: "02", label: "Fév" }, { val: "03", label: "Mar" },
+  { val: "04", label: "Avr" }, { val: "05", label: "Mai" }, { val: "06", label: "Juin" },
+  { val: "07", label: "Juil" }, { val: "08", label: "Août" }, { val: "09", label: "Sep" },
+  { val: "10", label: "Oct" }, { val: "11", label: "Nov" }, { val: "12", label: "Déc" },
+];
 
 function calcAge(dob: string | null) {
   if (!dob) return null;
@@ -22,16 +31,22 @@ function formatPhone(phone: string | null) {
   return phone.replace(/[^0-9]/g, "");
 }
 
-/** 
- * Calcule le VRAI statut unifié pour le mois en cours.
- * Un seul statut, pas deux colonnes contradictoires.
- */
+function getMonthStatus(r: Registration, monthStr: string): "paye" | "partiel" | "non_paye" {
+  const history = r.academy_payments_history || [];
+  const payments = history.filter(h => h.mois_concerne === monthStr);
+  if (payments.length === 0) return "non_paye";
+
+  const totalPaid = payments.reduce((acc, h) => acc + h.montant, 0);
+  if (totalPaid > 0 && totalPaid >= r.tarif_total) return "paye";
+  if (totalPaid > 0) return "partiel";
+  return "paye"; // Si paiement validé à 0 (ex: exception manuelle)
+}
+
 export function getStatutMoisEnCours(r: Registration, jourLimite: number): { label: string; cls: string; badgeCls: string; status: "ok" | "attente" | "retard" | "partiel" | "offert" } {
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const dayOfMonth = now.getDate();
 
-  // Inscription fin de mois → premier mois gratuit
   if (r.inscription_fin_de_mois && r.created_at) {
     const createdDate = new Date(r.created_at);
     if (createdDate.getMonth() === now.getMonth() && createdDate.getFullYear() === now.getFullYear()) {
@@ -39,23 +54,14 @@ export function getStatutMoisEnCours(r: Registration, jourLimite: number): { lab
     }
   }
 
-  // A-t-il payé CE MOIS-CI ?
-  const paidThisMonth = r.date_paiement && r.date_paiement.startsWith(currentMonth);
+  const history = r.academy_payments_history || [];
+  const paymentsThisMonth = history.filter(h => h.mois_concerne === currentMonth);
+  const totalPaid = paymentsThisMonth.reduce((acc, h) => acc + h.montant, 0);
 
-  if (paidThisMonth) {
-    if (r.montant_paye >= r.tarif_total) {
-      return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
-    } else {
-      return { label: `🟡 Partiel (${r.montant_paye}/${r.tarif_total})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
-    }
-  }
+  if (totalPaid >= r.tarif_total) return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
+  if (totalPaid > 0) return { label: `🟡 Partiel (${totalPaid}/${r.tarif_total})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
+  if (dayOfMonth <= jourLimite) return { label: `🟡 J-${jourLimite - dayOfMonth}`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
 
-  // Pas payé ce mois
-  if (dayOfMonth <= jourLimite) {
-    return { label: `🟡 J-${jourLimite - dayOfMonth}`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
-  }
-
-  // Après la deadline → EN RETARD
   return { label: `🔴 Retard (+${dayOfMonth - jourLimite}j)`, cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" };
 }
 
@@ -80,9 +86,18 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
   // Quick Payment mini-modal state
   const [quickPayOpen, setQuickPayOpen] = useState(false);
   const [quickPayPlayer, setQuickPayPlayer] = useState<Registration | null>(null);
+  const [quickPayTarget, setQuickPayTarget] = useState<{ type: "month" | "frais"; monthStr?: string } | null>(null);
   const [quickPayMontant, setQuickPayMontant] = useState(0);
-  const [quickPayMoyen, setQuickPayMoyen] = useState("");
+  const [quickPayMoyen, setQuickPayMoyen] = useState("Cash");
   const [quickPaySaving, setQuickPaySaving] = useState(false);
+
+  // Invoice Modal State
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [invoiceStep, setInvoiceStep] = useState<"select" | "preview">("select");
+  const [invoicePlayer, setInvoicePlayer] = useState<Registration | null>(null);
+  const [invoiceItems, setInvoiceItems] = useState<{ id: string, label: string, amount: number, selected: boolean, isFrais: boolean, method: string, date: string }[]>([]);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     return registrations.filter(r => {
@@ -125,20 +140,12 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
       if (updates.football !== undefined || updates.centre_loisirs !== undefined) {
         if (next.football && next.centre_loisirs) {
           next.tarif_total = tarifs.tarifCombo;
-          next.tarif_football = Math.round(tarifs.tarifCombo / 2);
-          next.tarif_loisirs = tarifs.tarifCombo - next.tarif_football;
         } else if (next.football) {
           next.tarif_total = tarifs.tarifFoot;
-          next.tarif_football = tarifs.tarifFoot;
-          next.tarif_loisirs = 0;
         } else if (next.centre_loisirs) {
           next.tarif_total = tarifs.tarifLoisirs;
-          next.tarif_football = 0;
-          next.tarif_loisirs = tarifs.tarifLoisirs;
         } else {
           next.tarif_total = 0;
-          next.tarif_football = 0;
-          next.tarif_loisirs = 0;
         }
       }
       return next;
@@ -173,14 +180,14 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
 
   function openEdit(r: Registration) {
     setEditingId(r.id);
-    const { id, created_at, ...rest } = r;
+    const { id, created_at, academy_payments_history, ...rest } = r as any;
     setForm(rest);
     setModalOpen(true);
   }
 
   async function saveReg() {
     if (!form.nom || !form.prenom) return;
-    const payload = { ...form, date_naissance: form.date_naissance || null, date_paiement: form.date_paiement || null, date_limite_paiement: form.date_limite_paiement || null };
+    const payload = { ...form, date_naissance: form.date_naissance || null };
     if (editingId) {
       await supabase.from("academy_registrations").update(payload).eq("id", editingId);
     } else {
@@ -190,46 +197,358 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     onRefresh();
   }
 
-  // ====== QUICK PAYMENT ======
-  function openQuickPay(r: Registration) {
+  // ====== QUICK PAYMENT LOGIC ======
+  function openQuickPayMonth(r: Registration, monthStr: string) {
+    const status = getMonthStatus(r, monthStr);
+    const history = r.academy_payments_history || [];
+    const totalPaid = history.filter(h => h.mois_concerne === monthStr).reduce((acc, h) => acc + h.montant, 0);
+    const remaining = r.tarif_total - totalPaid;
+
+    setQuickPayTarget({ type: "month", monthStr });
     setQuickPayPlayer(r);
-    setQuickPayMontant(r.tarif_total);
-    setQuickPayMoyen(r.moyen_paiement || "");
+    setQuickPayMontant(remaining > 0 ? remaining : r.tarif_total);
+    setQuickPayMoyen("Cash");
+    setQuickPayOpen(true);
+  }
+
+  function openQuickPayFrais(r: Registration) {
+    if (r.frais_inscription_paye) return;
+    setQuickPayTarget({ type: "frais" });
+    setQuickPayPlayer(r);
+    setQuickPayMontant(r.frais_inscription);
+    setQuickPayMoyen("Cash");
     setQuickPayOpen(true);
   }
 
   async function submitQuickPay() {
-    if (!quickPayPlayer) return;
+    if (!quickPayPlayer || !quickPayTarget) return;
     setQuickPaySaving(true);
-    const today = new Date().toISOString().split("T")[0];
-    const newStatut = quickPayMontant >= quickPayPlayer.tarif_total ? "paye" : quickPayMontant > 0 ? "partiel" : "en_attente";
-    await supabase.from("academy_registrations").update({
-      montant_paye: quickPayMontant,
-      moyen_paiement: quickPayMoyen || null,
-      statut_paiement: newStatut,
-      date_paiement: today,
-    }).eq("id", quickPayPlayer.id);
 
-    // Historique
-    if (quickPayMontant > 0) {
-      const isFullPay = quickPayMontant >= quickPayPlayer.tarif_total;
-      const monthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    if (quickPayTarget.type === "month") {
       await supabase.from("academy_payments_history").insert({
         registration_id: quickPayPlayer.id,
-        mois_concerne: monthStr,
+        mois_concerne: quickPayTarget.monthStr,
         montant: quickPayMontant,
-        moyen_paiement: quickPayMoyen || null,
-        description: isFullPay ? "Mensualité" : "Acompte"
+        moyen_paiement: quickPayMoyen || "Cash",
+        description: "Mensualité"
+      });
+      // Legacy compat for current month
+      const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+      if (quickPayTarget.monthStr === currentMonth) {
+        await supabase.from("academy_registrations").update({
+          montant_paye: quickPayMontant,
+          date_paiement: new Date().toISOString().split("T")[0],
+          statut_paiement: "paye"
+        }).eq("id", quickPayPlayer.id);
+      }
+    } else if (quickPayTarget.type === "frais") {
+      await supabase.from("academy_registrations").update({ frais_inscription_paye: true }).eq("id", quickPayPlayer.id);
+      await supabase.from("academy_payments_history").insert({
+        registration_id: quickPayPlayer.id,
+        mois_concerne: "FRAIS",
+        montant: quickPayMontant,
+        moyen_paiement: quickPayMoyen || "Cash",
+        description: "Frais d'inscription"
       });
     }
+
     setQuickPaySaving(false);
     setQuickPayOpen(false);
     setQuickPayPlayer(null);
     onRefresh();
   }
 
-  const totalDuNow = form.tarif_total + (form.frais_inscription_paye ? 0 : form.frais_inscription);
-  const isFinDeMois = new Date().getDate() >= tarifs.seuilFinDeMois;
+  async function cancelQuickPay() {
+    if (!quickPayPlayer || !quickPayTarget) return;
+    if (!confirm("Voulez-vous vraiment annuler le paiement pour ce mois ?")) return;
+    setQuickPaySaving(true);
+    
+    if (quickPayTarget.type === "month") {
+      await supabase.from("academy_payments_history")
+        .delete()
+        .eq("registration_id", quickPayPlayer.id)
+        .eq("mois_concerne", quickPayTarget.monthStr);
+    }
+    
+    setQuickPaySaving(false);
+    setQuickPayOpen(false);
+    onRefresh();
+  }
+
+  // ====== INVOICE LOGIC ======
+  function openInvoiceModal(r: Registration) {
+    setInvoicePlayer(r);
+    const history = r.academy_payments_history || [];
+    const items: typeof invoiceItems = [];
+
+    // Frais
+    if (r.frais_inscription_paye) {
+      const fraisP = history.find(h => h.mois_concerne === "FRAIS");
+      items.push({
+        id: "FRAIS",
+        label: "Frais d'inscription",
+        amount: r.frais_inscription,
+        selected: false,
+        isFrais: true,
+        method: fraisP?.moyen_paiement || "Cash",
+        date: fraisP?.created_at || String(r.created_at)
+      });
+    }
+
+    // Group history by month
+    const monthMap = new Map<string, { amount: number, method: string, date: string }>();
+    history.forEach(h => {
+      if (h.mois_concerne !== "FRAIS") {
+        const existing = monthMap.get(h.mois_concerne);
+        if (existing) {
+          existing.amount += h.montant;
+          if (new Date(h.created_at) > new Date(existing.date)) {
+            existing.method = h.moyen_paiement || "Cash";
+            existing.date = h.created_at;
+          }
+        } else {
+          monthMap.set(h.mois_concerne, { amount: h.montant, method: h.moyen_paiement || "Cash", date: h.created_at });
+        }
+      }
+    });
+
+    monthMap.forEach((data, monthStr) => {
+      const [y, m] = monthStr.split("-");
+      const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
+      items.push({
+        id: monthStr,
+        label: `Mois : ${monthLabel} ${y}`,
+        amount: data.amount,
+        selected: false,
+        isFrais: false,
+        method: data.method,
+        date: data.date
+      });
+    });
+
+    setInvoiceItems(items.sort((a, b) => a.id.localeCompare(b.id)));
+    setInvoiceStep("select");
+    setInvoiceModalOpen(true);
+  }
+
+  function toggleInvoiceItem(id: string) {
+    setInvoiceItems(prev => prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item));
+  }
+
+  function formatDateSafely(dateStr: string | null | undefined) {
+    if (!dateStr || dateStr === "null" || dateStr === "undefined") return "Date inconnue";
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? "Date inconnue" : d.toLocaleDateString("fr-FR");
+  }
+
+  const renderReceiptContent = () => {
+    if (!invoicePlayer) return null;
+    const totalAmount = invoiceItems.filter(i => i.selected).reduce((acc, curr) => acc + curr.amount, 0);
+
+    return (
+      <div style={{ width: "100%", maxWidth: "600px", background: "white", padding: "40px", color: "#1a1a1a", position: "relative", margin: "0 auto", fontFamily: "sans-serif" }}>
+        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: 0.05, pointerEvents: "none", zIndex: 0 }}>
+          <img src="/images/fiveur-academy-logo.png" alt="Watermark" style={{ width: 320, height: "auto" }} />
+        </div>
+
+        <div style={{ textAlign: "center", marginBottom: 24, position: "relative", zIndex: 10 }}>
+          <img src="/images/fiveur-academy-logo.png" alt="Fiveur Academy" style={{ height: 60, display: "inline-block" }} />
+        </div>
+
+        <div style={{ marginBottom: 24, position: "relative", zIndex: 10 }}>
+          <h1 style={{ fontSize: 26, fontWeight: 900, color: "#2d6a2e", textTransform: "uppercase", margin: 0 }}>FIVEUR ACADEMY</h1>
+          <p style={{ fontSize: 13, color: "#666", margin: "4px 0 0 0" }}>Since 2026 — Nouakchott, Mauritanie</p>
+        </div>
+
+        <div style={{ marginBottom: 20, position: "relative", zIndex: 10 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 12px 0", color: "#111" }}>REÇU DE PAIEMENT</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+            <span><strong>Reçu N° :</strong> REC-{String(invoicePlayer.id).padStart(4, "0")}</span>
+            <span><strong>Date :</strong> {formatDateSafely(new Date().toISOString())}</span>
+          </div>
+        </div>
+
+        <div style={{ background: "#2d6a2e", color: "white", padding: "8px 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16, position: "relative", zIndex: 10 }}>INFORMATIONS DE L'INSCRIT</div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", zIndex: 10, marginBottom: 32 }}>
+          <div style={{ flex: 1, paddingRight: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
+              <span style={{ color: "#666" }}>Nom et Prénom :</span>
+              <span style={{ fontWeight: 700, textTransform: "uppercase" }}>{invoicePlayer.prenom} {invoicePlayer.nom}</span>
+            </div>
+            {invoicePlayer.date_naissance && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
+                <span style={{ color: "#666" }}>Date de naissance :</span>
+                <span style={{ fontWeight: 700 }}>{formatDateSafely(invoicePlayer.date_naissance)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
+              <span style={{ color: "#666" }}>Tél. parent :</span>
+              <span style={{ fontWeight: 700 }}>{invoicePlayer.telephone_parent}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
+              <span style={{ color: "#666" }}>Prestation(s) :</span>
+              <span style={{ fontWeight: 700 }}>
+                {invoicePlayer.football && `⚽ Football Academy${invoicePlayer.categorie_foot ? ` (${invoicePlayer.categorie_foot})` : ''}`}
+                {invoicePlayer.football && invoicePlayer.centre_loisirs && " + "}
+                {invoicePlayer.centre_loisirs && "🎨 Centre Loisirs"}
+              </span>
+            </div>
+          </div>
+          <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: "2px solid #2d6a2e", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0", flexShrink: 0 }}>
+            {invoicePlayer.photo_url ? (
+              <img src={invoicePlayer.photo_url} alt="Photo" style={{ width: "100%", height: "100%", objectFit: "cover" }} crossOrigin="anonymous" />
+            ) : (
+              <span style={{ color: "#999", fontSize: 24, fontWeight: "bold" }}>{invoicePlayer.prenom.charAt(0)}</span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ background: "#2d6a2e", color: "white", padding: "8px 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16, position: "relative", zIndex: 10 }}>DÉTAIL DES PAIEMENTS</div>
+
+        <div style={{ position: "relative", zIndex: 10, marginBottom: 24 }}>
+          {invoiceItems.filter(i => i.selected).map(item => (
+            <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #eee" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, color: "#333", fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{item.method.toUpperCase()}</span>
+                </div>
+              </div>
+              <span style={{ fontWeight: 800, fontSize: 16 }}>{item.amount} MRU</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ background: "#f0fdf0", border: "1px solid #2d6a2e", padding: "24px 20px", textAlign: "center", margin: "32px 0 16px 0", borderRadius: 8, position: "relative", zIndex: 10 }}>
+          <p style={{ fontSize: 13, color: "#666", textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5, margin: "0 0 8px 0" }}>MONTANT TOTAL PAYÉ</p>
+          <p style={{ fontSize: 36, fontWeight: 900, color: "#2d6a2e", margin: 0 }}>{totalAmount} MRU</p>
+          <div style={{ marginTop: 16 }}>
+            <span style={{ display: "inline-block", padding: "6px 20px", borderRadius: 20, fontWeight: 800, fontSize: 14, background: "#dcfce7", color: "#166534" }}>
+              ✅ Paiement Confirmé
+            </span>
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 40, fontSize: 10, color: "#999", borderTop: "1px solid #eee", paddingTop: 16, position: "relative", zIndex: 10 }}>
+          Ce document est généré de manière automatique et électronique, il tient lieu de preuve de paiement certifiée.<br />
+          <strong>Fiveur Academy</strong>
+        </div>
+      </div>
+    );
+  };
+
+  async function generateMultiInvoice() {
+    if (!invoicePlayer) return;
+    const selected = invoiceItems.filter(i => i.selected);
+    if (selected.length === 0) return;
+
+    setIsGeneratingInvoice(true);
+
+    setTimeout(async () => {
+      try {
+        if (!receiptRef.current) throw new Error("Receipt ref not found");
+
+        const imgData = await htmlToImage.toPng(receiptRef.current, { pixelRatio: 2, skipAutoScale: true });
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfPageHeight = pdf.internal.pageSize.getHeight();
+        const imgProps = pdf.getImageProperties(imgData);
+        let imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        let imgWidthRender = pdfWidth;
+
+        if (imgHeight > pdfPageHeight) {
+          const ratio = pdfPageHeight / imgHeight;
+          imgHeight = pdfPageHeight;
+          imgWidthRender = imgWidthRender * ratio;
+        }
+
+        const xOffset = (pdfWidth - imgWidthRender) / 2;
+        pdf.addImage(imgData, "PNG", xOffset, 0, imgWidthRender, imgHeight);
+
+        const pdfBlob = pdf.output("blob");
+        const fileName = `recu-academy-${invoicePlayer.id}-${Date.now()}.pdf`;
+
+        const { error: uploadError } = await supabase.storage.from("academy_receipts").upload(fileName, pdfBlob, { contentType: "application/pdf" });
+
+        let pdfUrlLine = "";
+        if (!uploadError) {
+          const { data } = supabase.storage.from("academy_receipts").getPublicUrl(fileName);
+          let finalUrl = data.publicUrl;
+          try {
+            const shortRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(finalUrl)}`);
+            if (shortRes.ok) finalUrl = await shortRes.text();
+          } catch (e) { console.warn("Erreur raccourcissement URL", e); }
+          pdfUrlLine = finalUrl;
+        }
+
+        const totalAmount = selected.reduce((acc, curr) => acc + curr.amount, 0);
+        const labelsList = selected.map(i => `- ${i.label}`).join("\n");
+        const prenomNom = `${invoicePlayer.prenom} ${invoicePlayer.nom_pere ? invoicePlayer.nom_pere + " " : ""}${invoicePlayer.nom}`;
+
+        const msg = `=========================
+FIVEUR ACADEMY
+=========================
+Facture / Reçu
+
+N° : REC-${String(invoicePlayer.id).padStart(4, "0")}
+Joueur : ${prenomNom}
+Éléments facturés :
+${labelsList}
+
+Montant Total : ${totalAmount} MRU
+Statut : [Payé]
+Date : ${new Date().toLocaleDateString("fr-FR")}
+${pdfUrlLine ? `\nLien vers votre reçu PDF :\n${pdfUrlLine.replace('\n', '')}` : ""}
+
+Merci de votre confiance !`;
+
+        const phone = formatPhone(invoicePlayer.telephone_parent);
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+      } catch (err) {
+        console.error("Erreur génération PDF:", err);
+        alert("Une erreur est survenue lors de la génération du PDF.");
+      } finally {
+        setIsGeneratingInvoice(false);
+        setInvoiceModalOpen(false);
+      }
+    }, 100);
+  }
+
+  async function downloadInvoice() {
+    setIsGeneratingInvoice(true);
+    setTimeout(async () => {
+      try {
+        if (!receiptRef.current) throw new Error("Receipt ref not found");
+        const imgData = await htmlToImage.toPng(receiptRef.current, { pixelRatio: 2, skipAutoScale: true });
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfPageHeight = pdf.internal.pageSize.getHeight();
+        const imgProps = pdf.getImageProperties(imgData);
+        let imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        let imgWidthRender = pdfWidth;
+
+        if (imgHeight > pdfPageHeight) {
+          const ratio = pdfPageHeight / imgHeight;
+          imgHeight = pdfPageHeight;
+          imgWidthRender = imgWidthRender * ratio;
+        }
+
+        const xOffset = (pdfWidth - imgWidthRender) / 2;
+        pdf.addImage(imgData, "PNG", xOffset, 0, imgWidthRender, imgHeight);
+
+        pdf.save(`Facture_Academy_${invoicePlayer?.prenom}_${invoicePlayer?.nom}.pdf`);
+      } catch (err) {
+        console.error("Erreur téléchargement PDF:", err);
+        alert("Une erreur est survenue lors du téléchargement.");
+      } finally {
+        setIsGeneratingInvoice(false);
+        setInvoiceModalOpen(false);
+      }
+    }, 100);
+  }
+
+  const currentYear = new Date().getFullYear();
 
   return (
     <>
@@ -244,49 +563,35 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
             <option value="all" className="bg-[#161616]">Toutes catégories</option>
             {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#161616]">{c}</option>)}
           </select>
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-auto rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-fiver-green focus:outline-none">
-            <option value="all" className="bg-[#161616]">Tous statuts</option>
-            <option value="ok" className="bg-[#161616]">✅ À jour</option>
-            <option value="attente" className="bg-[#161616]">🟡 En attente</option>
-            <option value="retard" className="bg-[#161616]">🔴 En retard</option>
-          </select>
           <button onClick={openAdd} className="flex items-center gap-2 rounded-sm bg-fiver-green px-4 py-2.5 text-xs font-semibold uppercase text-fiver-black hover:opacity-90 transition-opacity">
             <Plus className="h-4 w-4" /> Inscrire
           </button>
         </div>
       </div>
 
-      {/* Info banner */}
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm text-white/40">{filtered.length} inscrit(s)</p>
-        <div className="flex items-center gap-3 text-xs text-white/40">
-          <span>📅 Deadline : le <strong className="text-white">{tarifs.jourLimitePaiement}</strong> du mois</span>
-          {isFinDeMois && <span className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-400 font-bold text-[10px]">⚠️ FIN DE MOIS</span>}
-        </div>
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#121212] shadow-xl">
-        <table className="w-full min-w-[900px] text-left">
+        <table className="w-full min-w-[1100px] text-left">
           <thead>
             <tr className="border-b border-white/10 bg-white/[0.02] text-[11px] font-bold uppercase tracking-wider text-white/40">
               <th className="px-3 py-4 w-12"></th>
               <th className="px-3 py-4">Nom Complet</th>
               <th className="px-3 py-4">Âge</th>
               <th className="px-3 py-4">Cat.</th>
-              <th className="px-3 py-4">Prest.</th>
               <th className="px-3 py-4">Tarif</th>
-              <th className="px-3 py-4">Statut Mois</th>
-              <th className="px-3 py-4">Frais Insc.</th>
-              <th className="px-3 py-4 w-20 text-center">Actions</th>
+              <th className="px-3 py-4 min-w-[340px]">Paiements (Saison {currentYear})</th>
+              <th className="px-3 py-4 w-24 text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(r => {
               const age = calcAge(r.date_naissance);
-              const statut = getStatutMoisEnCours(r, tarifs.jourLimitePaiement);
               return (
-                <tr key={r.id} onClick={() => openQuickPay(r)} className={cn("group cursor-pointer border-b border-white/5 transition-all hover:bg-white/[0.04]")}>
+                <tr key={r.id} className={cn("group border-b border-white/5 transition-all hover:bg-white/[0.04]")}>
                   <td className="px-3 py-3">
                     <div className="h-9 w-9 overflow-hidden rounded-full border border-white/10 bg-white/5 flex items-center justify-center relative">
                       {r.photo_url ? (
@@ -297,7 +602,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <p className="text-sm font-bold text-white group-hover:text-fiver-green transition-colors">
+                    <p className="text-sm font-bold text-white transition-colors">
                       {r.prenom} {r.nom_pere ? r.nom_pere + " " : ""}{r.nom}
                     </p>
                     <p className="text-[11px] text-white/30 mt-0.5">{r.telephone_parent || "—"}</p>
@@ -306,35 +611,54 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                   <td className="px-3 py-3">
                     {r.categorie_foot ? <span className="rounded bg-fiver-green/10 px-2 py-0.5 text-[10px] font-bold text-fiver-green">{r.categorie_foot}</span> : <span className="text-white/20">—</span>}
                   </td>
-                  <td className="px-3 py-3 text-xs text-white/50">
-                    {r.football && <span className="mr-0.5">⚽</span>}
-                    {r.centre_loisirs && <span>🎯</span>}
-                  </td>
                   <td className="px-3 py-3 text-sm font-mono font-bold text-white/70">{r.tarif_total.toLocaleString()}</td>
                   <td className="px-3 py-3">
-                    <span className={cn("rounded-full px-2.5 py-1 text-xs font-bold whitespace-nowrap", statut.badgeCls)}>
-                      {statut.label}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    {r.frais_inscription_paye ? (
-                      <span className="text-[10px] text-green-400/60">✅</span>
-                    ) : (
-                      <span className="text-[10px] text-red-400 font-bold">{r.frais_inscription}</span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openQuickPayFrais(r); }}
+                        className={cn("h-6 px-2 text-[9px] font-bold rounded uppercase transition-all", r.frais_inscription_paye ? "bg-green-500/20 text-green-400 cursor-default" : "bg-red-500/20 text-red-400 hover:bg-red-500/30 shadow-[0_0_8px_rgba(239,68,68,0.2)]")}
+                        title="Frais d'inscription"
+                      >
+                        FRAIS {r.frais_inscription_paye ? "✓" : ""}
+                      </button>
+                      <div className="mx-1 h-4 w-px bg-white/10" />
+                      {ALL_MONTHS.map(m => {
+                        const monthStr = `${currentYear}-${m.val}`;
+                        const status = getMonthStatus(r, monthStr);
+                        const colors = {
+                          paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
+                          partiel: "bg-amber-500 text-black hover:brightness-110",
+                          non_paye: "bg-white/5 text-white/30 hover:bg-white/10 border border-white/5"
+                        };
+                        return (
+                          <button
+                            key={m.val}
+                            onClick={(e) => { e.stopPropagation(); openQuickPayMonth(r, monthStr); }}
+                            className={cn("h-6 w-8 text-[9px] font-bold rounded flex items-center justify-center transition-all", colors[status])}
+                            title={`${m.label} ${currentYear}`}
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </td>
                   <td className="px-3 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openInvoiceModal(r); }}
+                        className="rounded-md p-1.5 text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
+                        title="Générer Facture WhatsApp"
+                      >
+                        <Printer className="h-4 w-4" />
+                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); openEdit(r); }}
                         className="rounded-md p-1.5 text-white/20 hover:bg-white/5 hover:text-white/60 transition-colors"
                         title="Modifier la fiche"
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-4 w-4" />
                       </button>
-                      {statut.status === "ok" && (
-                        <span className="text-green-400 text-xs">✓</span>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -344,185 +668,174 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         </table>
       </div>
 
-      {/* ====== QUICK PAYMENT MODAL — PRO ====== */}
-      {quickPayOpen && quickPayPlayer && (() => {
-        const age = calcAge(quickPayPlayer.date_naissance);
-        const statut = getStatutMoisEnCours(quickPayPlayer, tarifs.jourLimitePaiement);
-        const prestation = quickPayPlayer.football && quickPayPlayer.centre_loisirs ? "Foot + Loisirs" : quickPayPlayer.football ? "Football" : "Centre de Loisirs";
-        const isFullPay = quickPayMontant >= quickPayPlayer.tarif_total;
-        const isPartial = quickPayMontant > 0 && quickPayMontant < quickPayPlayer.tarif_total;
-        const monthName = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+      {/* ====== QUICK PAYMENT MODAL ====== */}
+      {quickPayOpen && quickPayPlayer && quickPayTarget && (() => {
+        const title = quickPayTarget.type === "month"
+          ? `Paiement — ${ALL_MONTHS.find(m => m.val === quickPayTarget.monthStr?.split("-")[1])?.label} ${quickPayTarget.monthStr?.split("-")[0]}`
+          : "Frais d'inscription";
 
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-in fade-in duration-200" onClick={() => setQuickPayOpen(false)}>
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gradient-to-b from-[#111111] to-[#0a0a0a] shadow-2xl shadow-black/50 overflow-hidden animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
-            
-            {/* Header — Player identity */}
-            <div className="relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-fiver-green/10 via-transparent to-transparent" />
-              <div className="relative flex items-start justify-between p-5 pb-4">
-                <div className="flex items-center gap-4">
-                  <div className="relative h-14 w-14 overflow-hidden rounded-full border-2 border-fiver-green/30 bg-[#1a1a1a] flex items-center justify-center shadow-lg shadow-fiver-green/10">
-                    {quickPayPlayer.photo_url ? (
-                      <Image src={quickPayPlayer.photo_url} alt="Photo" fill className="object-cover" />
-                    ) : (
-                      <span className="text-lg font-bold text-white/30">{quickPayPlayer.prenom.charAt(0)}{quickPayPlayer.nom.charAt(0)}</span>
-                    )}
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-in fade-in duration-200" onClick={() => setQuickPayOpen(false)}>
+            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#111] shadow-2xl shadow-black/50 overflow-hidden animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-white/5 p-5">
+                <h3 className="text-lg font-bold text-white">{title}</h3>
+                <button onClick={() => setQuickPayOpen(false)} className="text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+              </div>
+
+              <div className="p-5 space-y-5">
+                <div className="flex items-center gap-3 bg-white/5 p-3 rounded-lg border border-white/5">
+                  <div className="relative h-10 w-10 overflow-hidden rounded-full border border-white/10 bg-[#1a1a1a] flex items-center justify-center">
+                    {quickPayPlayer.photo_url ? <Image src={quickPayPlayer.photo_url} alt="" fill className="object-cover" /> : <span className="text-xs text-white/30">{quickPayPlayer.prenom.charAt(0)}{quickPayPlayer.nom.charAt(0)}</span>}
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white tracking-tight">
-                      {quickPayPlayer.prenom} {quickPayPlayer.nom_pere ? quickPayPlayer.nom_pere + " " : ""}{quickPayPlayer.nom}
-                    </h3>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-white/40">
-                      {age && <span>{age} ans</span>}
-                      {quickPayPlayer.categorie_foot && (
-                        <>
-                          <span className="text-white/10">·</span>
-                          <span className="rounded bg-fiver-green/10 px-1.5 py-0.5 text-[10px] font-bold text-fiver-green">{quickPayPlayer.categorie_foot}</span>
-                        </>
-                      )}
-                    </div>
+                    <p className="font-bold text-white text-sm">{quickPayPlayer.prenom} {quickPayPlayer.nom}</p>
+                    <p className="text-xs text-white/40">{quickPayPlayer.categorie_foot}</p>
                   </div>
                 </div>
-                <button onClick={() => setQuickPayOpen(false)} className="rounded-full p-1.5 text-white/30 transition-colors hover:bg-white/10 hover:text-white">
-                  <XIcon className="h-4 w-4" />
-                </button>
-              </div>
 
-              {/* Sub-header — Status & tarif */}
-              <div className="mx-5 mb-4 flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-                <div className="flex-1">
-                  <p className="text-[10px] uppercase tracking-widest text-white/25 mb-1">Paiement — {monthName}</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-2xl font-black text-white">{quickPayPlayer.tarif_total.toLocaleString()}</span>
-                    <span className="text-xs text-white/30">MRU</span>
-                  </div>
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-white/40">Montant encaissé (MRU)</label>
+                  <input
+                    type="number"
+                    value={quickPayMontant}
+                    onChange={e => setQuickPayMontant(parseInt(e.target.value) || 0)}
+                    className="w-full rounded-xl border-2 border-white/10 bg-[#0f0f0f] px-4 py-3 text-center font-mono text-2xl font-black text-fiver-green focus:border-fiver-green focus:outline-none"
+                  />
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-bold", statut.badgeCls)}>{statut.label}</span>
-                  <span className="text-[10px] text-white/25">{prestation}</span>
-                </div>
-              </div>
-            </div>
 
-            {/* Body */}
-            <div className="px-5 pb-5 flex flex-col gap-5">
-
-              {/* Montant rapide */}
-              <div>
-                <label className="mb-2 flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-white/40">Montant encaissé</span>
-                  <div className="flex gap-1">
-                    {[quickPayPlayer.tarif_total, Math.round(quickPayPlayer.tarif_total / 2)].map(preset => (
-                      <button key={preset} onClick={() => setQuickPayMontant(preset)}
-                        className={cn("rounded-md px-2.5 py-1 text-[10px] font-bold transition-all",
-                          quickPayMontant === preset ? "bg-fiver-green text-fiver-black" : "bg-white/5 text-white/30 hover:bg-white/10 hover:text-white/50")}>
-                        {preset === quickPayPlayer.tarif_total ? "Total" : "Moitié"}
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-white/40">Moyen de paiement</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {MOYENS_PAIEMENT.map(m => (
+                      <button key={m} onClick={() => setQuickPayMoyen(m)}
+                        className={cn("rounded-lg border p-2 text-xs font-bold transition-all", quickPayMoyen === m ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-white/5 bg-white/5 text-white/50 hover:bg-white/10")}>
+                        {m}
                       </button>
                     ))}
                   </div>
-                </label>
-                <div className="relative">
-                  <input 
-                    type="number" 
-                    value={quickPayMontant} 
-                    onChange={e => setQuickPayMontant(parseInt(e.target.value) || 0)} 
-                    className="w-full rounded-xl border-2 border-white/10 bg-[#0f0f0f] px-5 py-4 text-center font-mono text-3xl font-black text-white placeholder:text-white/20 focus:border-fiver-green focus:outline-none focus:ring-2 focus:ring-fiver-green/20 transition-all"
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-white/20">MRU</span>
                 </div>
-                {isPartial && (
-                  <p className="mt-1.5 text-center text-[11px] text-amber-400">
-                    ⚠️ Paiement partiel — reste {(quickPayPlayer.tarif_total - quickPayMontant).toLocaleString()} MRU
-                  </p>
-                )}
-              </div>
 
-              {/* Moyen de paiement */}
-              <div>
-                <label className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-white/40">Moyen de paiement</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: "Bankily", icon: "📱", desc: "Mobile Money" },
-                    { id: "Masrvi", icon: "📲", desc: "Mobile Money" },
-                    { id: "Cash", icon: "💵", desc: "Espèces" },
-                    { id: "Autre", icon: "💳", desc: "Autre moyen" },
-                  ].map(m => (
-                    <button key={m.id} onClick={() => setQuickPayMoyen(m.id)}
-                      className={cn("flex items-center gap-3 rounded-xl border-2 p-3 text-left transition-all",
-                        quickPayMoyen === m.id 
-                          ? "border-fiver-green bg-fiver-green/5 shadow-lg shadow-fiver-green/10" 
-                          : "border-white/5 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]")}>
-                      <span className="text-xl">{m.icon}</span>
-                      <div>
-                        <p className={cn("text-sm font-bold", quickPayMoyen === m.id ? "text-fiver-green" : "text-white/70")}>{m.id}</p>
-                        <p className="text-[10px] text-white/25">{m.desc}</p>
-                      </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <button
+                    onClick={submitQuickPay}
+                    disabled={quickPaySaving || quickPayMontant < 0}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-fiver-green py-3 text-sm font-black text-black shadow-lg shadow-fiver-green/20 disabled:opacity-50"
+                  >
+                    {quickPaySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Valider l'encaissement"}
+                  </button>
+                  
+                  {quickPayTarget.type === "month" && (quickPayPlayer.academy_payments_history || []).some(h => h.mois_concerne === quickPayTarget.monthStr) && (
+                    <button
+                      onClick={cancelQuickPay}
+                      disabled={quickPaySaving}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-red-500/10 text-red-400 py-3 text-sm font-bold border border-red-500/20 hover:bg-red-500/20 disabled:opacity-50 transition-all"
+                    >
+                      Annuler le paiement
                     </button>
-                  ))}
+                  )}
                 </div>
               </div>
-
-              {/* Submit */}
-              <button
-                onClick={submitQuickPay}
-                disabled={quickPaySaving || !quickPayMoyen || quickPayMontant <= 0}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2.5 rounded-xl py-4 text-sm font-black uppercase tracking-wider shadow-xl transition-all",
-                  "disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none",
-                  isFullPay
-                    ? "bg-fiver-green text-fiver-black shadow-fiver-green/30 hover:shadow-fiver-green/50 hover:brightness-110"
-                    : isPartial
-                      ? "bg-amber-500 text-black shadow-amber-500/20 hover:shadow-amber-500/40 hover:brightness-110"
-                      : "bg-white/10 text-white/50"
-                )}
-              >
-                {quickPaySaving ? (
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                ) : (
-                  <>
-                    <Zap className="h-4 w-4" />
-                    {isFullPay ? "Confirmer le paiement" : isPartial ? "Enregistrer le partiel" : "Sélectionner un montant"}
-                  </>
-                )}
-              </button>
-
-              {/* Résumé visuel */}
-              {quickPayMoyen && quickPayMontant > 0 && (
-                <div className="rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3 text-center">
-                  <p className="text-[10px] uppercase tracking-widest text-white/25 mb-1">Résumé</p>
-                  <p className="text-xs text-white/50">
-                    <strong className="text-white">{quickPayMontant.toLocaleString()} MRU</strong> via <strong className="text-white">{quickPayMoyen}</strong>
-                    {" — "}
-                    <span className={isFullPay ? "text-green-400" : "text-amber-400"}>
-                      {isFullPay ? "✅ Complet" : `⚠️ Partiel`}
-                    </span>
-                  </p>
-                </div>
-              )}
-
-              {/* Action Secondaire : Relance WhatsApp */}
-              {(statut.status === "retard" || statut.status === "attente" || statut.status === "partiel") && quickPayPlayer.telephone_parent && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const prenomNom = `${quickPayPlayer.prenom} ${quickPayPlayer.nom_pere ? quickPayPlayer.nom_pere + " " : ""}${quickPayPlayer.nom}`;
-                    const msg = statut.status === "retard" 
-                      ? `⚠️ Bonjour, la Fiveur Academy vous informe que le paiement mensuel de ${quickPayPlayer.tarif_total} MRU pour ${prenomNom} est EN RETARD. La deadline du ${tarifs.jourLimitePaiement} est passée. Merci de régulariser.\n\nContact : Fiveur Academy.`
-                      : `Bonjour, ceci est un rappel de la Fiveur Academy. Le paiement mensuel de ${quickPayPlayer.tarif_total} MRU pour ${prenomNom} est en attente. Date limite : le ${tarifs.jourLimitePaiement} du mois. Merci de régulariser.\n\nCordialement, Fiveur Academy.`;
-                    const phone = formatPhone(quickPayPlayer.telephone_parent);
-                    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
-                  }}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-green-500/20 bg-green-500/10 py-3 text-xs font-bold uppercase tracking-wide text-green-400 transition-all hover:bg-green-500/20"
-                >
-                  <MessageCircle className="h-4 w-4" /> Envoyer un rappel WhatsApp
-                </button>
-              )}
             </div>
           </div>
-        </div>
         );
       })()}
+
+      {/* ====== INVOICE GENERATOR MODAL ====== */}
+      {invoiceModalOpen && invoicePlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-in fade-in duration-200" onClick={() => setInvoiceModalOpen(false)}>
+          <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#111] shadow-2xl shadow-black/50 flex flex-col max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/5 p-5">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Printer className="h-5 w-5 text-fiver-green" />
+                {invoiceStep === "select" ? "Générer une Facture" : "Aperçu de la Facture"}
+              </h3>
+              <button onClick={() => setInvoiceModalOpen(false)} className="text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+            </div>
+
+            {invoiceStep === "select" ? (
+              <>
+                <div className="p-5 flex-1 overflow-y-auto max-h-[60vh]">
+                  <p className="text-sm text-white/60 mb-4">Sélectionnez les paiements effectués par <strong className="text-white">{invoicePlayer.prenom} {invoicePlayer.nom}</strong> à inclure dans la facture :</p>
+
+                  {invoiceItems.length === 0 ? (
+                    <div className="text-center p-6 border border-white/5 rounded-lg bg-white/[0.02]">
+                      <p className="text-white/40 text-sm">Aucun paiement enregistré pour cet enfant.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {invoiceItems.map(item => (
+                        <div key={item.id} onClick={() => toggleInvoiceItem(item.id)} className={cn("flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all", item.selected ? "border-fiver-green bg-fiver-green/5" : "border-white/5 bg-white/[0.02] hover:bg-white/5")}>
+                          <div className="flex items-center gap-3">
+                            <button className={cn("text-xl transition-colors", item.selected ? "text-fiver-green" : "text-white/20")}>
+                              {item.selected ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5" />}
+                            </button>
+                            <span className={cn("font-bold text-sm", item.selected ? "text-white" : "text-white/60")}>{item.label}</span>
+                          </div>
+                          <span className="font-mono text-sm font-bold text-white/80">{item.amount} MRU</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-white/5 p-5 bg-[#0a0a0a]">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="text-xs uppercase tracking-wider text-white/40 font-bold">Total Sélectionné</span>
+                    <span className="text-xl font-black text-fiver-green font-mono">{invoiceItems.filter(i => i.selected).reduce((acc, curr) => acc + curr.amount, 0)} MRU</span>
+                  </div>
+                  <button
+                    onClick={() => setInvoiceStep("preview")}
+                    disabled={invoiceItems.filter(i => i.selected).length === 0}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#25D366] py-3.5 text-sm font-black text-black shadow-lg shadow-[#25D366]/20 disabled:opacity-50"
+                  >
+                    Voir l'aperçu
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex-1 overflow-y-auto p-4 bg-gray-200">
+                  <div className="shadow-xl rounded-md overflow-hidden">
+                    {renderReceiptContent()}
+                  </div>
+                </div>
+
+                <div className="border-t border-white/5 p-5 bg-[#0a0a0a] flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => setInvoiceStep("select")}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white/10 py-3 text-sm font-bold text-white hover:bg-white/20 transition-all"
+                  >
+                    Retour
+                  </button>
+                  <button
+                    onClick={downloadInvoice}
+                    disabled={isGeneratingInvoice}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white/10 py-3 text-sm font-bold text-white hover:bg-white/20 transition-all"
+                  >
+                    <Printer className="h-4 w-4" /> Imprimer / Télécharger
+                  </button>
+                  <button
+                    onClick={generateMultiInvoice}
+                    disabled={isGeneratingInvoice}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] py-3 text-sm font-black text-black shadow-lg shadow-[#25D366]/20 disabled:opacity-50 hover:brightness-110 transition-all"
+                  >
+                    {isGeneratingInvoice ? <Loader2 className="h-5 w-5 animate-spin" /> : <><MessageCircle className="h-5 w-5" /> WhatsApp</>}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Receipt for PDF Generation */}
+      {invoicePlayer && invoiceItems.filter(i => i.selected).length > 0 && (
+        <div style={{ position: "fixed", top: "-9999px", left: "-9999px", zIndex: -100 }}>
+          <div ref={receiptRef} style={{ width: "600px" }}>
+            {renderReceiptContent()}
+          </div>
+        </div>
+      )}
 
       {/* ====== FULL MODAL (Fiche Joueur) ====== */}
       {modalOpen && (
@@ -537,7 +850,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
 
             <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10">
               <div className="grid grid-cols-1 gap-8 md:grid-cols-12">
-                
+
                 {/* Left Column - Photo & Identity */}
                 <div className="md:col-span-4 flex flex-col gap-6">
                   <div className="w-full flex flex-col items-center justify-center p-6 border-2 border-dashed border-white/10 rounded-xl bg-white/[0.02]">
@@ -583,7 +896,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                 <div className="md:col-span-8 flex flex-col gap-8">
                   {/* Prestations */}
                   <div>
-                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10"/>PRESTATIONS<div className="h-px flex-1 bg-white/10"/></h4>
+                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />PRESTATIONS<div className="h-px flex-1 bg-white/10" /></h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                       <label className={cn("flex cursor-pointer items-center rounded-lg border p-4 transition-colors", form.football ? "border-fiver-green bg-fiver-green/5" : "border-white/10 bg-white/[0.02] hover:border-white/20")}>
                         <input type="checkbox" checked={form.football} onChange={e => handleFormChange({ football: e.target.checked })} className="h-5 w-5 accent-fiver-green cursor-pointer mr-3" />
@@ -609,47 +922,9 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                     </div>
                   </div>
 
-                  {/* Frais d'inscription (new) */}
-                  {!editingId && (
-                    <div>
-                      <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-amber-400/50 flex items-center gap-2"><div className="h-px flex-1 bg-amber-400/10"/>PREMIÈRE INSCRIPTION<div className="h-px flex-1 bg-amber-400/10"/></h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-                          <p className="text-xs font-bold uppercase tracking-wide text-amber-400 mb-2">🎟️ Frais d'inscription</p>
-                          <p className="font-mono text-xl font-bold text-white">{form.frais_inscription} MRU</p>
-                          <label className="mt-3 flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={form.frais_inscription_paye} onChange={e => handleFormChange({ frais_inscription_paye: e.target.checked })} className="h-4 w-4 accent-fiver-green" />
-                            <span className="text-xs text-white/60">Déjà payés</span>
-                          </label>
-                        </div>
-                        {isFinDeMois && (
-                          <div className={cn("rounded-lg border p-4", form.inscription_fin_de_mois ? "border-blue-500/30 bg-blue-500/10" : "border-white/5 bg-white/[0.02]")}>
-                            <p className="text-xs font-bold uppercase tracking-wide text-blue-400 mb-2 flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Fin de mois</p>
-                            <p className="text-[11px] text-white/50 mb-3">Après le {tarifs.seuilFinDeMois} → 1er paiement reporté.</p>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input type="checkbox" checked={form.inscription_fin_de_mois} onChange={e => handleFormChange({ inscription_fin_de_mois: e.target.checked })} className="h-4 w-4 accent-blue-500" />
-                              <span className="text-xs font-bold text-white">Reporter le 1er paiement</span>
-                            </label>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Frais d'inscription (edit) */}
-                  {editingId && (
-                    <div className="flex items-center gap-4 rounded-lg border border-white/5 bg-white/[0.02] p-4">
-                      <p className="text-xs text-white/50 flex-1">Frais insc. : <strong className="text-white">{form.frais_inscription} MRU</strong></p>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={form.frais_inscription_paye} onChange={e => handleFormChange({ frais_inscription_paye: e.target.checked })} className="h-5 w-5 accent-fiver-green" />
-                        <span className={cn("text-sm font-bold", form.frais_inscription_paye ? "text-green-400" : "text-red-400")}>{form.frais_inscription_paye ? "✅ Payés" : "❌ Non payés"}</span>
-                      </label>
-                    </div>
-                  )}
-
                   {/* Contact */}
                   <div>
-                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10"/>CONTACT<div className="h-px flex-1 bg-white/10"/></h4>
+                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />CONTACT<div className="h-px flex-1 bg-white/10" /></h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Téléphone Parent</label>
@@ -667,33 +942,14 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
                     <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Observations</label>
                     <textarea rows={2} value={form.observations || ""} onChange={e => handleFormChange({ observations: e.target.value || null })} className={cn(inputClass, "resize-none")} placeholder="Notes..." />
                   </div>
-
-                  {/* Total résumé (new only) */}
-                  {!editingId && (
-                    <div className="rounded-xl border border-fiver-green/20 bg-fiver-green/5 p-5">
-                      <h4 className="text-xs font-black uppercase tracking-widest text-fiver-green mb-3">💰 Récapitulatif</h4>
-                      <div className="flex flex-col gap-1 text-sm">
-                        <div className="flex justify-between"><span className="text-white/50">Tarif mensuel</span><span className="text-white font-medium">{form.tarif_total} MRU</span></div>
-                        {!form.frais_inscription_paye && <div className="flex justify-between"><span className="text-white/50">Frais d'inscription</span><span className="text-amber-400 font-medium">+ {form.frais_inscription} MRU</span></div>}
-                        {form.inscription_fin_de_mois && <div className="flex justify-between"><span className="text-white/50">1er mois</span><span className="text-blue-400 font-medium">Offert (fin de mois)</span></div>}
-                        <hr className="my-1 border-fiver-green/20" />
-                        <div className="flex justify-between font-bold text-lg">
-                          <span className="text-fiver-green">TOTAL DÛ</span>
-                          <span className="text-fiver-green font-mono">
-                            {form.inscription_fin_de_mois ? (form.frais_inscription_paye ? 0 : form.frais_inscription) : totalDuNow} MRU
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-4 border-t border-white/5 bg-[#0a0a0a] px-6 py-4">
               <button onClick={() => setModalOpen(false)} className="rounded-md px-5 py-2.5 text-sm font-medium text-white/50 hover:text-white">Annuler</button>
-              <button onClick={saveReg} disabled={!form.nom||!form.prenom} className="flex items-center gap-2 rounded-md bg-fiver-green px-6 py-2.5 text-sm font-bold tracking-wide text-fiver-black shadow-lg shadow-fiver-green/20 transition-all hover:scale-105 disabled:opacity-50">
-                <Save className="h-4 w-4" /> {editingId ? "Enregistrer" : "Créer l'inscription"}
+              <button onClick={saveReg} disabled={!form.nom || !form.prenom} className="flex items-center gap-2 rounded-md bg-fiver-green px-6 py-2.5 text-sm font-bold tracking-wide text-fiver-black shadow-lg shadow-fiver-green/20 transition-all hover:scale-105 disabled:opacity-50">
+                <Save className="h-4 w-4" /> Enregistrer
               </button>
             </div>
           </div>

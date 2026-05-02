@@ -33,3 +33,24 @@
 
   CREATE POLICY "Allow insert for anon" ON sport_feminin_inscriptions
     FOR INSERT WITH CHECK (true);
+
+  -- ============================================================
+  -- Table: sport_feminin_payments_history
+  -- ============================================================
+
+  CREATE TABLE IF NOT EXISTS sport_feminin_payments_history (
+    id SERIAL PRIMARY KEY,
+    inscription_id INTEGER REFERENCES sport_feminin_inscriptions(id) ON DELETE CASCADE,
+    mois_concerne TEXT NOT NULL, -- ex: "2026-04"
+    montant NUMERIC NOT NULL,
+    moyen_paiement TEXT,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  ALTER TABLE sport_feminin_payments_history ENABLE ROW LEVEL SECURITY;
+
+  DROP POLICY IF EXISTS "Allow all for authenticated" ON sport_feminin_payments_history;
+  
+  CREATE POLICY "Allow all for authenticated" ON sport_feminin_payments_history
+    FOR ALL USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');

@@ -37,6 +37,7 @@ export interface Registration {
   frais_inscription: number;
   frais_inscription_paye: boolean;
   inscription_fin_de_mois: boolean;
+  academy_payments_history?: any[];
 }
 
 export interface Tarifs {
@@ -81,8 +82,8 @@ export default function AcademyProPage() {
       const { data: tarifData } = await supabase.from("settings").select("key, value").eq("key", "academy_tarifs").single();
       if (tarifData?.value) { try { setTarifs({ ...DEFAULT_TARIFS, ...JSON.parse(tarifData.value) }); } catch {} }
 
-      // Fetch registrations
-      const { data: regData } = await supabase.from("academy_registrations").select("*").order("nom", { ascending: true });
+      // Fetch registrations with history
+      const { data: regData } = await supabase.from("academy_registrations").select("*, academy_payments_history(*)").order("nom", { ascending: true });
       setRegistrations(regData ? (regData as Registration[]) : []);
     } catch (e) {
       console.error(e);
