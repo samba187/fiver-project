@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare } from "lucide-react";
+import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
@@ -77,6 +77,11 @@ export default function SportFemininAdminPage() {
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
 
+  // Add Registration Modal
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [newInsc, setNewInsc] = useState({ nom: "", prenom: "", date_naissance: "", telephone: "", enfant_inscrit: false, enfant_nom_prenom: "" });
+  const [addSaving, setAddSaving] = useState(false);
+
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
@@ -109,6 +114,34 @@ export default function SportFemininAdminPage() {
       .delete()
       .eq("id", id);
     if (!error) fetchInscriptions();
+  }
+
+  async function submitAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newInsc.nom || !newInsc.prenom || !newInsc.telephone) {
+      alert("Veuillez remplir les champs obligatoires (Nom, Prénom, Téléphone).");
+      return;
+    }
+    setAddSaving(true);
+    const { error } = await supabase.from("sport_feminin_inscriptions").insert({
+      nom: newInsc.nom,
+      prenom: newInsc.prenom,
+      date_naissance: newInsc.date_naissance || null,
+      telephone: newInsc.telephone,
+      enfant_inscrit: newInsc.enfant_inscrit,
+      enfant_nom_prenom: newInsc.enfant_inscrit ? newInsc.enfant_nom_prenom : null,
+      statut: "confirmé"
+    });
+
+    setAddSaving(false);
+    if (error) {
+      alert("Erreur lors de l'ajout.");
+      console.error(error);
+    } else {
+      setAddModalOpen(false);
+      setNewInsc({ nom: "", prenom: "", date_naissance: "", telephone: "", enfant_inscrit: false, enfant_nom_prenom: "" });
+      fetchInscriptions();
+    }
   }
 
   function openQuickPayMonth(r: Inscription, monthStr: string) {
@@ -494,6 +527,9 @@ Merci de votre confiance !`;
               {f.replace("_", " ")}
             </button>
           ))}
+          <button onClick={() => setAddModalOpen(true)} className="flex items-center gap-2 rounded-md bg-[#c81054] px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:bg-[#a60d45] transition-colors">
+            <Plus className="h-4 w-4" /> Inscrire
+          </button>
         </div>
       </div>
 
@@ -788,6 +824,64 @@ Merci de votre confiance !`;
       <div style={{ position: "fixed", top: "-9999px", left: "-9999px", zIndex: -100 }}>
         {/* We reuse the receipt ref directly inside the preview step to avoid layout shifts */}
       </div>
+
+      {/* ADD REGISTRATION MODAL */}
+      {addModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-2xl relative my-8">
+            <button onClick={() => setAddModalOpen(false)} className="absolute right-4 top-4 text-white/40 hover:text-white">
+              <X className="h-6 w-6" />
+            </button>
+            <div className="p-6">
+              <h2 className="mb-6 font-[var(--font-heading)] text-2xl font-bold uppercase text-[#c81054]">Nouvelle Inscription</h2>
+              
+              <form onSubmit={submitAdd} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Prénom *</label>
+                    <input type="text" required value={newInsc.prenom} onChange={e => setNewInsc({...newInsc, prenom: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Nom *</label>
+                    <input type="text" required value={newInsc.nom} onChange={e => setNewInsc({...newInsc, nom: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Téléphone *</label>
+                    <input type="text" required value={newInsc.telephone} onChange={e => setNewInsc({...newInsc, telephone: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Date de naissance</label>
+                    <input type="date" value={newInsc.date_naissance} onChange={e => setNewInsc({...newInsc, date_naissance: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5">
+                  <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                    <input type="checkbox" checked={newInsc.enfant_inscrit} onChange={e => setNewInsc({...newInsc, enfant_inscrit: e.target.checked})} className="h-4 w-4 rounded bg-[#1a1a1a] border-white/10 text-[#c81054] focus:ring-[#c81054]" />
+                    <span className="text-sm font-medium text-white/80">Lier à un enfant inscrit à l'Académie (Réduction 20%)</span>
+                  </label>
+                </div>
+
+                {newInsc.enfant_inscrit && (
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-emerald-400/70">Nom et Prénom de l'enfant (Académie)</label>
+                    <input type="text" value={newInsc.enfant_nom_prenom} onChange={e => setNewInsc({...newInsc, enfant_nom_prenom: e.target.value})} placeholder="Ex: Ahmed Sidi" className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 text-sm font-medium text-white placeholder:text-white/20 focus:border-emerald-500 focus:outline-none" />
+                  </div>
+                )}
+
+                <div className="pt-4">
+                  <button type="submit" disabled={addSaving} className="w-full rounded-lg bg-[#c81054] py-3 text-sm font-bold uppercase tracking-wider text-white hover:bg-[#a60d45] disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                    {addSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Valider l'inscription"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
