@@ -16,21 +16,21 @@ const DEFAULT_TEMPLATES = {
   confirmation: "✅ Bonjour, la Fiveur Academy confirme la réception du paiement de {MONTANT} MRU pour {PRENOM} {NOM}. Inscription validée pour : {PRESTATION}. Merci de votre confiance ! ⚽ Fiveur Academy — Since 2026.",
 };
 
-function getTypeRappel(r: Registration, jourLimite: number) {
-  const s = getStatutMoisEnCours(r, jourLimite);
+function getTypeRappel(r: Registration, jourLimite: number, tarifMensuel: number) {
+  const s = getStatutMoisEnCours(r, jourLimite, tarifMensuel);
   if (s.status === "ok") return { type: "confirmation" as const, label: "✅ Confirmation", cls: "bg-green-500/10 text-green-400" };
   if (s.status === "retard") return { type: "retard" as const, label: "🔴 Retard", cls: "bg-red-500/10 text-red-400" };
   return { type: "rappel" as const, label: "🟡 Rappel", cls: "bg-amber-500/10 text-amber-400" };
 }
 
-function generateMessage(r: Registration, templates: typeof DEFAULT_TEMPLATES, jourLimite: number) {
-  const info = getTypeRappel(r, jourLimite);
+function generateMessage(r: Registration, templates: typeof DEFAULT_TEMPLATES, jourLimite: number, tarifMensuel: number) {
+  const info = getTypeRappel(r, jourLimite, tarifMensuel);
   const template = templates[info.type];
   const prestation = r.football && r.centre_loisirs ? "Foot + Loisirs" : r.football ? "Football" : r.centre_loisirs ? "Centre de Loisirs" : "—";
   return template
     .replace(/{NOM}/g, r.nom)
     .replace(/{PRENOM}/g, r.prenom)
-    .replace(/{MONTANT}/g, String(r.tarif_total || 0))
+    .replace(/{MONTANT}/g, String(tarifMensuel || 0))
     .replace(/{PRESTATION}/g, prestation)
     .replace(/{JOUR_LIMITE}/g, String(jourLimite));
 }
@@ -71,9 +71,9 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
         if (r.inscription_fin_de_mois && r.created_at && new Date(r.created_at).getMonth() === new Date().getMonth()) return false;
         return true;
       })
-      .filter(r => filter === "all" || getTypeRappel(r, tarifs.jourLimitePaiement).type === filter)
+      .filter(r => filter === "all" || getTypeRappel(r, tarifs.jourLimitePaiement, tarifs.tarifFoot).type === filter)
       .filter(r => !search || (r.nom + " " + r.prenom).toLowerCase().includes(search.toLowerCase()));
-  }, [registrations, filter, search, tarifs.jourLimitePaiement]);
+  }, [registrations, filter, search, tarifs.jourLimitePaiement, tarifs.tarifFoot]);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:max-h-[calc(100vh-250px)]">
@@ -155,8 +155,8 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center h-full text-white/30 text-sm italic">Aucun message pour ces critères.</div>
           ) : filtered.map(r => {
-            const info = getTypeRappel(r, tarifs.jourLimitePaiement);
-            const msg = generateMessage(r, templates, tarifs.jourLimitePaiement);
+            const info = getTypeRappel(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
+            const msg = generateMessage(r, templates, tarifs.jourLimitePaiement, tarifs.tarifFoot);
             const phone = formatPhone(r.telephone_parent);
             const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
             return (

@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import * as htmlToImage from "html-to-image";
@@ -31,18 +31,19 @@ function formatPhone(phone: string | null) {
   return phone.replace(/[^0-9]/g, "");
 }
 
-function getMonthStatus(r: Registration, monthStr: string): "paye" | "partiel" | "non_paye" {
+function getMonthStatus(r: Registration, monthStr: string, tarifMensuel?: number): "paye" | "partiel" | "non_paye" {
   const history = r.academy_payments_history || [];
   const payments = history.filter(h => h.mois_concerne === monthStr);
   if (payments.length === 0) return "non_paye";
 
   const totalPaid = payments.reduce((acc, h) => acc + h.montant, 0);
-  if (totalPaid > 0 && totalPaid >= r.tarif_total) return "paye";
+  const seuil = tarifMensuel || r.tarif_total;
+  if (totalPaid > 0 && totalPaid >= seuil) return "paye";
   if (totalPaid > 0) return "partiel";
   return "paye"; // Si paiement validé à 0 (ex: exception manuelle)
 }
 
-export function getStatutMoisEnCours(r: Registration, jourLimite: number): { label: string; cls: string; badgeCls: string; status: "ok" | "attente" | "retard" | "partiel" | "offert" } {
+export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifMensuel: number): { label: string; cls: string; badgeCls: string; status: "ok" | "attente" | "retard" | "partiel" | "offert" } {
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const dayOfMonth = now.getDate();
@@ -58,8 +59,8 @@ export function getStatutMoisEnCours(r: Registration, jourLimite: number): { lab
   const paymentsThisMonth = history.filter(h => h.mois_concerne === currentMonth);
   const totalPaid = paymentsThisMonth.reduce((acc, h) => acc + h.montant, 0);
 
-  if (totalPaid >= r.tarif_total) return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
-  if (totalPaid > 0) return { label: `🟡 Partiel (${totalPaid}/${r.tarif_total})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
+  if (totalPaid >= tarifMensuel) return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
+  if (totalPaid > 0) return { label: `🟡 Partiel (${totalPaid}/${tarifMensuel})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
   if (dayOfMonth <= jourLimite) return { label: `🟡 J-${jourLimite - dayOfMonth}`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
 
   return { label: `🔴 Retard (+${dayOfMonth - jourLimite}j)`, cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" };
@@ -104,7 +105,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     return registrations.filter(r => {
       if (filterCat !== "all" && r.categorie_foot !== filterCat) return false;
       if (filterStatus !== "all") {
-        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement);
+        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
         if (filterStatus === "ok" && s.status !== "ok") return false;
         if (filterStatus === "retard" && s.status !== "retard") return false;
         if (filterStatus === "attente" && s.status !== "attente" && s.status !== "partiel") return false;
@@ -173,6 +174,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     setEditingId(null);
     const f = emptyForm();
     f.frais_inscription = tarifs.fraisInscription;
+    f.tarif_total = tarifs.tarifFoot;
     const today = new Date().getDate();
     if (today >= tarifs.seuilFinDeMois) f.inscription_fin_de_mois = true;
     setForm(f);
@@ -182,6 +184,13 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
   function openEdit(r: Registration) {
     setEditingId(r.id);
     const { id, created_at, academy_payments_history, ...rest } = r as any;
+    
+    // Force recalculation of tarif based on current active parameters, discarding old imported DB values
+    if (rest.football && rest.centre_loisirs) rest.tarif_total = tarifs.tarifCombo;
+    else if (rest.football) rest.tarif_total = tarifs.tarifFoot;
+    else if (rest.centre_loisirs) rest.tarif_total = tarifs.tarifLoisirs;
+    else rest.tarif_total = 0;
+
     setForm(rest);
     setModalOpen(true);
   }
@@ -200,21 +209,21 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
 
   // ====== QUICK PAYMENT LOGIC ======
   function openQuickPayMonth(r: Registration, monthStr: string) {
-    const status = getMonthStatus(r, monthStr);
+    const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
     const history = r.academy_payments_history || [];
     const totalPaid = history.filter(h => h.mois_concerne === monthStr).reduce((acc, h) => acc + h.montant, 0);
-    const remaining = r.tarif_total - totalPaid;
+    const remaining = tarifs.tarifFoot - totalPaid;
 
     setQuickPayTarget({ type: "month", monthStr });
     setQuickPayPlayer(r);
-    setQuickPayMontant(remaining > 0 ? remaining : r.tarif_total);
+    setQuickPayMontant(remaining > 0 ? remaining : tarifs.tarifFoot);
     setQuickPayMoyen("Cash");
     setQuickPayDate(new Date().toISOString().split("T")[0]);
     setQuickPayOpen(true);
   }
 
   function openQuickPayFrais(r: Registration) {
-    if (r.frais_inscription_paye) return;
+    // Allow opening even if already paid (to cancel)
     setQuickPayTarget({ type: "frais" });
     setQuickPayPlayer(r);
     setQuickPayMontant(r.frais_inscription);
@@ -246,15 +255,17 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         }).eq("id", quickPayPlayer.id);
       }
     } else if (quickPayTarget.type === "frais") {
-      await supabase.from("academy_registrations").update({ frais_inscription_paye: true }).eq("id", quickPayPlayer.id);
-      await supabase.from("academy_payments_history").insert({
-        registration_id: quickPayPlayer.id,
-        mois_concerne: "FRAIS",
-        montant: quickPayMontant,
-        moyen_paiement: quickPayMoyen || "Cash",
-        description: "Frais d'inscription",
-        date_paiement: new Date(quickPayDate + "T12:00:00Z").toISOString()
-      });
+      if (!quickPayPlayer.frais_inscription_paye) {
+        await supabase.from("academy_registrations").update({ frais_inscription_paye: true }).eq("id", quickPayPlayer.id);
+        await supabase.from("academy_payments_history").insert({
+          registration_id: quickPayPlayer.id,
+          mois_concerne: "FRAIS",
+          montant: quickPayMontant,
+          moyen_paiement: quickPayMoyen || "Cash",
+          description: "Frais d'inscription",
+          date_paiement: new Date(quickPayDate + "T12:00:00Z").toISOString()
+        });
+      }
     }
 
     setQuickPaySaving(false);
@@ -265,7 +276,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
 
   async function cancelQuickPay() {
     if (!quickPayPlayer || !quickPayTarget) return;
-    if (!confirm("Voulez-vous vraiment annuler le paiement pour ce mois ?")) return;
+    if (!confirm("Voulez-vous vraiment annuler ce paiement ?")) return;
     setQuickPaySaving(true);
     
     if (quickPayTarget.type === "month") {
@@ -273,6 +284,14 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
         .delete()
         .eq("registration_id", quickPayPlayer.id)
         .eq("mois_concerne", quickPayTarget.monthStr);
+    } else if (quickPayTarget.type === "frais") {
+      await supabase.from("academy_payments_history")
+        .delete()
+        .eq("registration_id", quickPayPlayer.id)
+        .eq("mois_concerne", "FRAIS");
+      await supabase.from("academy_registrations")
+        .update({ frais_inscription_paye: false })
+        .eq("id", quickPayPlayer.id);
     }
     
     setQuickPaySaving(false);
@@ -639,7 +658,7 @@ Merci de votre confiance !`;
                       <div className="mx-1 h-4 w-px bg-white/10" />
                       {ALL_MONTHS.map(m => {
                         const monthStr = `${currentYear}-${m.val}`;
-                        const status = getMonthStatus(r, monthStr);
+                        const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
                         const colors = {
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
                           partiel: "bg-amber-500 text-black hover:brightness-110",
@@ -686,6 +705,19 @@ Merci de votre confiance !`;
                         title="Modifier la fiche"
                       >
                         <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm(`Supprimer ${r.prenom} ${r.nom} ? Cette action est irréversible.`)) return;
+                          await supabase.from("academy_payments_history").delete().eq("registration_id", r.id);
+                          await supabase.from("academy_registrations").delete().eq("id", r.id);
+                          onRefresh();
+                        }}
+                        className="rounded-md p-1.5 text-red-500/30 hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                        title="Supprimer l'inscription"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </td>
@@ -762,7 +794,8 @@ Merci de votre confiance !`;
                     {quickPaySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Valider l'encaissement"}
                   </button>
                   
-                  {quickPayTarget.type === "month" && (quickPayPlayer.academy_payments_history || []).some(h => h.mois_concerne === quickPayTarget.monthStr) && (
+                  {((quickPayTarget.type === "month" && (quickPayPlayer.academy_payments_history || []).some(h => h.mois_concerne === quickPayTarget.monthStr)) ||
+                    (quickPayTarget.type === "frais" && quickPayPlayer.frais_inscription_paye)) && (
                     <button
                       onClick={cancelQuickPay}
                       disabled={quickPaySaving}

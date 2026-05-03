@@ -45,7 +45,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
 
     // Use unified status logic
     const statusCounts = registrations.reduce((acc, r) => {
-      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement);
+      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
       if (s.status === "ok") acc.aJour++;
       else if (s.status === "retard") acc.enRetard++;
       else if (s.status === "offert") acc.offert++;
