@@ -14,6 +14,7 @@ const navLinks = [
   { href: "/sport-feminin", label: "Sport Féminin" },
   { href: "/centre-de-loisirs", label: "Centre de Loisirs" },
   { href: "/solidarite", label: "Solidarity" },
+  { href: "/transport", label: "Navette" },
   { href: "/contact", label: "Contact" },
 ];
 
