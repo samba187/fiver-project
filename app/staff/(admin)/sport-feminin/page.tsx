@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus } from "lucide-react";
+import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
@@ -82,6 +82,21 @@ export default function SportFemininAdminPage() {
   const [newInsc, setNewInsc] = useState({ nom: "", prenom: "", date_naissance: "", telephone: "", enfant_inscrit: false, enfant_nom_prenom: "" });
   const [addSaving, setAddSaving] = useState(false);
 
+  // Edit Registration Modal
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  interface EditingInscType {
+    id: number;
+    nom: string;
+    prenom: string;
+    date_naissance: string;
+    telephone: string;
+    enfant_inscrit: boolean;
+    enfant_nom_prenom: string;
+    statut: string;
+  }
+  const [editingInsc, setEditingInsc] = useState<EditingInscType | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
@@ -140,6 +155,51 @@ export default function SportFemininAdminPage() {
     } else {
       setAddModalOpen(false);
       setNewInsc({ nom: "", prenom: "", date_naissance: "", telephone: "", enfant_inscrit: false, enfant_nom_prenom: "" });
+      fetchInscriptions();
+    }
+  }
+
+  function openEditModal(r: Inscription) {
+    setEditingInsc({
+      id: r.id,
+      nom: r.nom || "",
+      prenom: r.prenom || "",
+      date_naissance: r.date_naissance || "",
+      telephone: r.telephone || "",
+      enfant_inscrit: !!r.enfant_inscrit,
+      enfant_nom_prenom: r.enfant_nom_prenom || "",
+      statut: r.statut || "en_attente",
+    });
+    setEditModalOpen(true);
+  }
+
+  async function submitEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingInsc || !editingInsc.nom || !editingInsc.prenom || !editingInsc.telephone) {
+      alert("Veuillez remplir les champs obligatoires (Nom, Prénom, Téléphone).");
+      return;
+    }
+    setEditSaving(true);
+    const { error } = await supabase
+      .from("sport_feminin_inscriptions")
+      .update({
+        nom: editingInsc.nom,
+        prenom: editingInsc.prenom,
+        date_naissance: editingInsc.date_naissance || null,
+        telephone: editingInsc.telephone,
+        enfant_inscrit: editingInsc.enfant_inscrit,
+        enfant_nom_prenom: editingInsc.enfant_inscrit ? editingInsc.enfant_nom_prenom : null,
+        statut: editingInsc.statut,
+      })
+      .eq("id", editingInsc.id);
+
+    setEditSaving(false);
+    if (error) {
+      alert("Erreur lors de la modification.");
+      console.error(error);
+    } else {
+      setEditModalOpen(false);
+      setEditingInsc(null);
       fetchInscriptions();
     }
   }
@@ -634,6 +694,13 @@ Merci de votre confiance !`;
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       <button
+                        onClick={(e) => { e.stopPropagation(); openEditModal(ins); }}
+                        className="rounded-md p-1.5 text-blue-400 hover:bg-blue-400/10 transition-colors"
+                        title="Modifier les informations"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); openInvoiceModal(ins); }}
                         className="rounded-md p-1.5 text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
                         title="Générer Facture WhatsApp"
@@ -875,6 +942,80 @@ Merci de votre confiance !`;
                 <div className="pt-4">
                   <button type="submit" disabled={addSaving} className="w-full rounded-lg bg-[#c81054] py-3 text-sm font-bold uppercase tracking-wider text-white hover:bg-[#a60d45] disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                     {addSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Valider l'inscription"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT REGISTRATION MODAL */}
+      {editModalOpen && editingInsc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0a0a0a] shadow-2xl relative my-8">
+            <button onClick={() => { setEditModalOpen(false); setEditingInsc(null); }} className="absolute right-4 top-4 text-white/40 hover:text-white">
+              <X className="h-6 w-6" />
+            </button>
+            <div className="p-6">
+              <h2 className="mb-6 font-[var(--font-heading)] text-2xl font-bold uppercase text-[#c81054]">Modifier l'Inscription</h2>
+              
+              <form onSubmit={submitEdit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Prénom *</label>
+                    <input type="text" required value={editingInsc.prenom} onChange={e => setEditingInsc({...editingInsc, prenom: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Nom *</label>
+                    <input type="text" required value={editingInsc.nom} onChange={e => setEditingInsc({...editingInsc, nom: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Téléphone *</label>
+                    <input type="text" required value={editingInsc.telephone} onChange={e => setEditingInsc({...editingInsc, telephone: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Date de naissance</label>
+                    <input type="date" value={editingInsc.date_naissance} onChange={e => setEditingInsc({...editingInsc, date_naissance: e.target.value})} className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase text-white/40">Statut</label>
+                  <select 
+                    value={editingInsc.statut} 
+                    onChange={e => setEditingInsc({...editingInsc, statut: e.target.value})} 
+                    className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white focus:border-[#c81054] focus:outline-none"
+                  >
+                    <option value="en_attente" className="bg-[#0a0a0a] text-white">En attente</option>
+                    <option value="confirmé" className="bg-[#0a0a0a] text-white">Confirmé</option>
+                    <option value="annulé" className="bg-[#0a0a0a] text-white">Annulé</option>
+                  </select>
+                </div>
+
+                <div className="pt-4 border-t border-white/5">
+                  <label className="flex items-center gap-3 cursor-pointer p-3 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+                    <input type="checkbox" checked={editingInsc.enfant_inscrit} onChange={e => setEditingInsc({...editingInsc, enfant_inscrit: e.target.checked})} className="h-4 w-4 rounded bg-[#1a1a1a] border-white/10 text-[#c81054] focus:ring-[#c81054]" />
+                    <span className="text-sm font-medium text-white/80">Lier à un enfant inscrit à l'Académie (Réduction 20%)</span>
+                  </label>
+                </div>
+
+                {editingInsc.enfant_inscrit && (
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase text-emerald-400/70">Nom et Prénom de l'enfant (Académie)</label>
+                    <input type="text" value={editingInsc.enfant_nom_prenom} onChange={e => setEditingInsc({...editingInsc, enfant_nom_prenom: e.target.value})} placeholder="Ex: Ahmed Sidi" className="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 text-sm font-medium text-white placeholder:text-white/20 focus:border-emerald-500 focus:outline-none" />
+                  </div>
+                )}
+
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => { setEditModalOpen(false); setEditingInsc(null); }} className="w-1/2 rounded-lg border border-white/10 py-3 text-sm font-bold uppercase tracking-wider text-white/60 hover:text-white hover:bg-white/5 transition-colors">
+                    Annuler
+                  </button>
+                  <button type="submit" disabled={editSaving} className="w-1/2 rounded-lg bg-[#c81054] py-3 text-sm font-bold uppercase tracking-wider text-white hover:bg-[#a60d45] disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
+                    {editSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sauvegarder"}
                   </button>
                 </div>
               </form>
