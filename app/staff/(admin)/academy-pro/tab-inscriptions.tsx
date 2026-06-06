@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,12 +31,18 @@ function formatPhone(phone: string | null) {
   return phone.replace(/[^0-9]/g, "");
 }
 
-function getMonthStatus(r: Registration, monthStr: string, tarifMensuel?: number): "paye" | "partiel" | "non_paye" {
+function getMonthStatus(r: Registration, monthStr: string, tarifMensuel?: number): "paye" | "partiel" | "non_paye" | "off" {
   const history = r.academy_payments_history || [];
-  const payments = history.filter(h => h.mois_concerne === monthStr);
-  if (payments.length === 0) return "non_paye";
+  const allPayments = history.filter(h => h.mois_concerne === monthStr);
 
-  const totalPaid = payments.reduce((acc, h) => acc + h.montant, 0);
+  // Check if month is marked as OFF (only if no real payments exist)
+  const hasOff = allPayments.some(h => h.moyen_paiement === "OFF");
+  const realPayments = allPayments.filter(h => h.moyen_paiement !== "OFF");
+
+  if (hasOff && realPayments.length === 0) return "off";
+  if (realPayments.length === 0) return "non_paye";
+
+  const totalPaid = realPayments.reduce((acc, h) => acc + h.montant, 0);
   const seuil = tarifMensuel || r.tarif_total;
   if (totalPaid > 0 && totalPaid >= seuil) return "paye";
   if (totalPaid > 0) return "partiel";
@@ -56,7 +62,13 @@ export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifM
   }
 
   const history = r.academy_payments_history || [];
-  const paymentsThisMonth = history.filter(h => h.mois_concerne === currentMonth);
+
+  // Check if current month is OFF
+  if (history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF")) {
+    return { label: "⬛ OFF", cls: "text-white/30", badgeCls: "bg-white/5 text-white/30", status: "ok" };
+  }
+
+  const paymentsThisMonth = history.filter(h => h.mois_concerne === currentMonth && h.moyen_paiement !== "OFF");
   const totalPaid = paymentsThisMonth.reduce((acc, h) => acc + h.montant, 0);
 
   if (totalPaid >= tarifMensuel) return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
@@ -92,6 +104,11 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
   const [quickPayMoyen, setQuickPayMoyen] = useState("Cash");
   const [quickPayDate, setQuickPayDate] = useState(new Date().toISOString().split("T")[0]);
   const [quickPaySaving, setQuickPaySaving] = useState(false);
+
+  // Month Choice Modal (Encaisser vs OFF)
+  const [monthChoiceOpen, setMonthChoiceOpen] = useState(false);
+  const [monthChoicePlayer, setMonthChoicePlayer] = useState<Registration | null>(null);
+  const [monthChoiceMonth, setMonthChoiceMonth] = useState<string | null>(null);
 
   // Invoice Modal State
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -232,11 +249,54 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     setQuickPayOpen(true);
   }
 
+  function openMonthChoice(r: Registration, monthStr: string) {
+    const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
+    // If month is paid or partial, go directly to quick pay modal (existing behavior)
+    if (status === "paye" || status === "partiel") {
+      openQuickPayMonth(r, monthStr);
+      return;
+    }
+    // For non_paye or off months, show choice modal
+    setMonthChoicePlayer(r);
+    setMonthChoiceMonth(monthStr);
+    setMonthChoiceOpen(true);
+  }
+
+  async function setMonthOff(r: Registration, monthStr: string) {
+    await supabase.from("academy_payments_history").insert({
+      registration_id: r.id,
+      mois_concerne: monthStr,
+      montant: 0,
+      moyen_paiement: "OFF",
+      description: "Mois non inscrit",
+      date_paiement: new Date().toISOString()
+    });
+    setMonthChoiceOpen(false);
+    onRefresh();
+  }
+
+  async function removeMonthOff(r: Registration, monthStr: string) {
+    await supabase.from("academy_payments_history")
+      .delete()
+      .eq("registration_id", r.id)
+      .eq("mois_concerne", monthStr)
+      .eq("moyen_paiement", "OFF");
+    setMonthChoiceOpen(false);
+    onRefresh();
+  }
+
   async function submitQuickPay() {
     if (!quickPayPlayer || !quickPayTarget) return;
     setQuickPaySaving(true);
 
     if (quickPayTarget.type === "month") {
+      // Remove any OFF marker for this month first
+      await supabase.from("academy_payments_history")
+        .delete()
+        .eq("registration_id", quickPayPlayer.id)
+        .eq("mois_concerne", quickPayTarget.monthStr)
+        .eq("moyen_paiement", "OFF");
+
       await supabase.from("academy_payments_history").insert({
         registration_id: quickPayPlayer.id,
         mois_concerne: quickPayTarget.monthStr,
@@ -268,6 +328,26 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
       }
     }
 
+    // Auto-redirect to invoice/WhatsApp for monthly payments
+    if (quickPayTarget.type === "month" && quickPayTarget.monthStr) {
+      const monthStr = quickPayTarget.monthStr;
+      const [y, m] = monthStr.split("-");
+      const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
+
+      setInvoicePlayer(quickPayPlayer);
+      setInvoiceItems([{
+        id: monthStr,
+        label: `Mois : ${monthLabel} ${y}`,
+        amount: quickPayMontant,
+        selected: true,
+        isFrais: false,
+        method: quickPayMoyen || "Cash",
+        date: quickPayDate
+      }]);
+      setInvoiceStep("preview");
+      setInvoiceModalOpen(true);
+    }
+
     setQuickPaySaving(false);
     setQuickPayOpen(false);
     setQuickPayPlayer(null);
@@ -283,7 +363,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
       await supabase.from("academy_payments_history")
         .delete()
         .eq("registration_id", quickPayPlayer.id)
-        .eq("mois_concerne", quickPayTarget.monthStr);
+        .eq("mois_concerne", quickPayTarget.monthStr)
+        .neq("moyen_paiement", "OFF");
     } else if (quickPayTarget.type === "frais") {
       await supabase.from("academy_payments_history")
         .delete()
@@ -659,15 +740,16 @@ Merci de votre confiance !`;
                       {ALL_MONTHS.map(m => {
                         const monthStr = `${currentYear}-${m.val}`;
                         const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
-                        const colors = {
+                        const colors: Record<string, string> = {
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
                           partiel: "bg-amber-500 text-black hover:brightness-110",
-                          non_paye: "bg-white/5 text-white/30 hover:bg-white/10 border border-white/5"
+                          non_paye: "bg-white/5 text-white/30 hover:bg-white/10 border border-white/5",
+                          off: "bg-white/[0.02] text-white/15 line-through border border-dashed border-white/10 hover:border-white/20"
                         };
                         return (
                           <button
                             key={m.val}
-                            onClick={(e) => { e.stopPropagation(); openQuickPayMonth(r, monthStr); }}
+                            onClick={(e) => { e.stopPropagation(); openMonthChoice(r, monthStr); }}
                             className={cn("h-6 w-8 text-[9px] font-bold rounded flex items-center justify-center transition-all", colors[status])}
                             title={`${m.label} ${currentYear}`}
                           >
@@ -805,6 +887,66 @@ Merci de votre confiance !`;
                     </button>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ====== MONTH CHOICE MODAL (Encaisser vs OFF) ====== */}
+      {monthChoiceOpen && monthChoicePlayer && monthChoiceMonth && (() => {
+        const status = getMonthStatus(monthChoicePlayer, monthChoiceMonth, tarifs.tarifFoot);
+        const [y, m] = monthChoiceMonth.split("-");
+        const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
+        const isOff = status === "off";
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80 animate-in fade-in duration-200" onClick={() => setMonthChoiceOpen(false)}>
+            <div className="w-full max-w-xs rounded-2xl border border-white/10 bg-[#111] shadow-2xl shadow-black/50 overflow-hidden animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+              <div className="border-b border-white/5 p-5 text-center">
+                <p className="text-xs font-bold uppercase tracking-wider text-white/40 mb-1">
+                  {monthChoicePlayer.prenom} {monthChoicePlayer.nom}
+                </p>
+                <h3 className="text-lg font-black text-white">
+                  {monthLabel} {y}
+                </h3>
+                {isOff && <span className="mt-2 inline-block rounded-full bg-white/5 px-3 py-1 text-[10px] font-bold uppercase text-white/30">Actuellement OFF</span>}
+              </div>
+
+              <div className="p-4 space-y-3">
+                <button
+                  onClick={() => {
+                    setMonthChoiceOpen(false);
+                    if (isOff) {
+                      // Remove OFF first, then open payment
+                      removeMonthOff(monthChoicePlayer, monthChoiceMonth).then(() => {
+                        openQuickPayMonth(monthChoicePlayer, monthChoiceMonth);
+                      });
+                    } else {
+                      openQuickPayMonth(monthChoicePlayer, monthChoiceMonth);
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-3 rounded-xl bg-fiver-green py-3.5 text-sm font-black text-black shadow-lg shadow-fiver-green/20 hover:brightness-110 transition-all"
+                >
+                  <CreditCard className="h-5 w-5" />
+                  Encaisser le paiement
+                </button>
+
+                {isOff ? (
+                  <button
+                    onClick={() => { removeMonthOff(monthChoicePlayer, monthChoiceMonth); }}
+                    className="w-full flex items-center justify-center gap-3 rounded-xl border-2 border-blue-500/30 bg-blue-500/10 py-3.5 text-sm font-bold text-blue-400 hover:bg-blue-500/20 transition-all"
+                  >
+                    ✅ Réactiver ce mois
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setMonthOff(monthChoicePlayer, monthChoiceMonth)}
+                    className="w-full flex items-center justify-center gap-3 rounded-xl border-2 border-white/10 bg-white/5 py-3.5 text-sm font-bold text-white/50 hover:bg-white/10 hover:text-white/80 transition-all"
+                  >
+                    ⬛ Mettre en OFF
+                  </button>
+                )}
               </div>
             </div>
           </div>
