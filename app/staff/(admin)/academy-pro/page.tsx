@@ -76,7 +76,6 @@ export default function AcademyProPage() {
 
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
     try {
       // Fetch tarifs
       const { data: tarifData } = await supabase.from("settings").select("key, value").eq("key", "academy_tarifs").single();
