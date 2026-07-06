@@ -775,6 +775,20 @@ Merci de votre confiance !`;
                   <td className="px-3 py-3 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          let phone = formatPhone(r.telephone_parent);
+                          if (phone.length === 8) phone = "222" + phone;
+                          if (!phone) return;
+                          window.open(`https://wa.me/${phone}`, "_blank");
+                        }}
+                        disabled={!r.telephone_parent}
+                        className="rounded-md p-1.5 text-[#25D366] hover:bg-[#25D366]/10 transition-colors disabled:opacity-20 disabled:pointer-events-none"
+                        title="Contacter sur WhatsApp"
+                      >
+                        <MessageCircle className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); openInvoiceModal(r); }}
                         className="rounded-md p-1.5 text-[#25D366] hover:bg-[#25D366]/10 transition-colors"
                         title="Générer Facture WhatsApp"

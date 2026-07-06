@@ -19,12 +19,14 @@ import {
   Trash2,
   Heart,
   Truck,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
 const SIDEBAR_LINKS = [
   { href: "/staff/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+  { href: "/staff/caisse", label: "Caisse", icon: Wallet },
   { href: "/staff/reservations", label: "Réservations", icon: CalendarCheck },
   { href: "/staff/academy-pro", label: "Academy & Loisirs", icon: ClipboardList },
   { href: "/staff/contacts", label: "Messages", icon: MessageCircle },

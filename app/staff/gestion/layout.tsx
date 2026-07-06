@@ -10,11 +10,13 @@ import {
   LogOut,
   Menu,
   X,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
 const SIDEBAR_LINKS = [
+  { href: "/staff/gestion/caisse", label: "Caisse", icon: Wallet },
   { href: "/staff/gestion/reservations", label: "Réservations", icon: CalendarCheck },
   { href: "/staff/gestion/calendrier", label: "Calendrier", icon: CalendarDays },
 ];
