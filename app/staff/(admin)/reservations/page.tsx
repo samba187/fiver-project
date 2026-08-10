@@ -125,6 +125,18 @@ export default function ReservationsPage() {
     fetchReservations();
   }
 
+  async function blockReservation() {
+    if (!newRes.date) return;
+    await supabase.from("reservations").insert({
+      name: "BLOQUÉ (Proprio)", phone: "00000000", email: "", date: newRes.date,
+      time: newRes.time, pitch: newRes.pitch, status: "blocked",
+      total_price: 0, amount_paid: 0
+    });
+    setNewRes({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
+    setShowAdd(false);
+    fetchReservations();
+  }
+
   const filtered = useMemo(() => {
     return reservations.filter((r) => {
       if (filterStatus === "recurring") return r.is_recurring === true;
@@ -145,6 +157,7 @@ export default function ReservationsPage() {
         }
         return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
       }
+      case "blocked": return <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-500 border border-red-500/30">⛔ Bloqué</span>;
       case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">❌ Annulée</span>;
       default: return null;
     }
@@ -191,8 +204,9 @@ export default function ReservationsPage() {
               <option value="Terrain 2" className="bg-fiver-black text-white">Terrain 2</option>
             </select>
           </div>
-          <div className="mt-3 flex gap-2 sm:mt-4">
+          <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <button onClick={addReservation} className="rounded-sm bg-fiver-green px-4 py-2 text-xs font-semibold text-fiver-black hover:opacity-90 sm:text-sm">Ajouter</button>
+            <button onClick={blockReservation} className="rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 sm:text-sm">⛔ Bloquer (Proprio)</button>
             <button onClick={() => setShowAdd(false)} className="rounded-sm px-4 py-2 text-xs text-white/40 hover:text-white/70 sm:text-sm">Annuler</button>
           </div>
         </div>
@@ -206,7 +220,7 @@ export default function ReservationsPage() {
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap items-center gap-1 rounded-sm border border-white/10 bg-white/5 p-1">
-          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "paid", label: "Payées" }, { key: "cancelled", label: "Annulées" }, { key: "recurring", label: "🔁 Récurrentes" }].map((f) => (
+          {[{ key: "all", label: "Toutes" }, { key: "pending", label: "En attente" }, { key: "paid", label: "Payées" }, { key: "blocked", label: "Bloquées" }, { key: "cancelled", label: "Annulées" }, { key: "recurring", label: "🔁 Récurrentes" }].map((f) => (
             <button key={f.key} onClick={() => setFilterStatus(f.key)} className={cn("rounded-sm px-2.5 py-1.5 text-xs font-medium transition-colors", filterStatus === f.key ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}>{f.label}</button>
           ))}
         </div>
@@ -429,6 +443,7 @@ export default function ReservationsPage() {
                   <div className="flex items-center gap-3">
                     <div className={cn("flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold",
                       r.status === "paid" ? "bg-blue-500/15 text-blue-400" :
+                      r.status === "blocked" ? "bg-red-500/20 text-red-500" :
                       r.status === "cancelled" ? "bg-red-500/15 text-red-400" :
                       "bg-amber-500/15 text-amber-400"
                     )}>
@@ -543,7 +558,7 @@ export default function ReservationsPage() {
                     <MessageCircle className="h-4 w-4" /> WhatsApp
                   </a>
                 )}
-                {r.status !== "cancelled" && r.status !== "paid" && (
+                {r.status !== "cancelled" && r.status !== "blocked" && (
                   <button onClick={(e) => { e.stopPropagation(); closeDetail(); setCancelModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-amber-500/10 px-4 py-2.5 text-xs font-semibold text-amber-400 transition-colors hover:bg-amber-500/20">
                     <XIcon className="h-4 w-4" /> Annuler
                   </button>
@@ -551,7 +566,7 @@ export default function ReservationsPage() {
                 <button onClick={(e) => { e.stopPropagation(); closeDetail(); setDeleteModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20">
                   <Trash2 className="h-4 w-4" /> Supprimer
                 </button>
-                {(r.status === "cancelled" || r.status === "paid") && (
+                {(r.status === "cancelled" || r.status === "paid" || r.status === "blocked") && (
                   <button onClick={closeDetail} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-white/50 transition-colors hover:bg-white/5 hover:text-white/70">
                     Fermer
                   </button>

@@ -228,6 +228,8 @@ export default function TerrainsPage() {
     switch (status) {
       case "paid": return <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">💰 Payée</span>;
       case "pending": return <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">⏳ En attente</span>;
+      case "blocked": return <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-500 border border-red-500/30">⛔ Bloqué</span>;
+      case "cancelled": return <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">❌ Annulée</span>;
       default: return null;
     }
   };
@@ -489,12 +491,17 @@ export default function TerrainsPage() {
                   <MessageCircle className="h-4 w-4" /> WhatsApp
                 </a>
               )}
-              {r.status !== "cancelled" && r.status !== "paid" && (
+              {r.status !== "cancelled" && r.status !== "blocked" && (
                 <button onClick={(e) => { e.stopPropagation(); closeDetail(); setCancelModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20">
                   <XIcon className="h-4 w-4" /> Annuler
                 </button>
               )}
-              {(r.status === "cancelled" || r.status === "paid") && (
+              {r.status === "blocked" && (
+                <button onClick={(e) => { e.stopPropagation(); closeDetail(); setCancelModal({ isOpen: true, id: r.id }); }} className="flex items-center justify-center gap-2 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs font-semibold text-red-400 transition-colors hover:bg-red-500/20">
+                  <XIcon className="h-4 w-4" /> Débloquer
+                </button>
+              )}
+              {(r.status === "cancelled" || r.status === "paid" || r.status === "blocked") && (
                 <button onClick={closeDetail} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 px-4 py-2.5 text-xs font-semibold text-white/50 transition-colors hover:bg-white/5 hover:text-white/70">
                   Fermer
                 </button>
