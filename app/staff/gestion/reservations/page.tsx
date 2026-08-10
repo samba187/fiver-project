@@ -173,7 +173,7 @@ export default function GestionReservationsPage() {
   async function blockReservation() {
     if (!newRes.date) return;
     await supabase.from("reservations").insert({
-      name: "BLOQUÉ (Proprio)", phone: "00000000", date: newRes.date,
+      name: "BLOQUÉ", phone: "00000000", date: newRes.date,
       time: newRes.time, pitch: newRes.pitch, status: "blocked",
       total_price: 0, amount_paid: 0, payment_confirmed: false,
     });
@@ -244,7 +244,7 @@ export default function GestionReservationsPage() {
           </div>
           <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
             <button onClick={addReservation} className="rounded-sm bg-fiver-green px-4 py-2 text-xs font-semibold text-fiver-black hover:opacity-90 sm:text-sm">Ajouter</button>
-            <button onClick={blockReservation} className="rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 sm:text-sm">⛔ Bloquer (Proprio)</button>
+            <button onClick={blockReservation} className="rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 sm:text-sm">⛔ Bloquer ce créneau</button>
             <button onClick={() => setShowAdd(false)} className="rounded-sm px-4 py-2 text-xs text-white/40 hover:text-white/70 sm:text-sm">Annuler</button>
           </div>
         </div>
