@@ -153,7 +153,12 @@ export function BookingFlow() {
     async function fetchBooked() {
       if (!selectedDate) return;
       const dateStr = formatDateStr(selectedDate);
-      const { data } = await supabase.from("reservations").select("time, pitch").eq("date", dateStr).not("status", "in", '("cancelled","deleted")');
+      const { data } = await supabase
+        .from("reservations")
+        .select("time, pitch")
+        .eq("date", dateStr)
+        .neq("status", "cancelled")
+        .neq("status", "deleted");
       if (data) {
         const set = new Set<string>();
         data.forEach((r) => set.add(`${r.pitch}:${r.time}`));
@@ -181,7 +186,8 @@ export function BookingFlow() {
         .select("time, pitch")
         .eq("date", dateStr)
         .eq("pitch", selectedPitch)
-        .not("status", "in", '("cancelled","deleted")');
+        .neq("status", "cancelled")
+        .neq("status", "deleted");
 
       avail[w] = !(data && data.some(r => r.time === selectedSlot));
     }
@@ -273,7 +279,9 @@ export function BookingFlow() {
         const { data: existing } = await supabase
           .from("reservations").select("id")
           .eq("date", dateStr).eq("time", selectedSlot).eq("pitch", selectedPitch)
-          .not("status", "in", '("cancelled","deleted")').limit(1);
+          .neq("status", "cancelled")
+          .neq("status", "deleted")
+          .limit(1);
 
         if (existing && existing.length > 0) {
           setError(`Le créneau ${selectedSlot} du ${date.toLocaleDateString("fr-FR")} est déjà pris.`);
