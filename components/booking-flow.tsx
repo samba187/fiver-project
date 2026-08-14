@@ -70,8 +70,6 @@ export function BookingFlow() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
-  const [paymentType, setPaymentType] = useState<"full" | "deposit">("full");
-  const [depositAmount, setDepositAmount] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -227,7 +225,7 @@ export function BookingFlow() {
 
   function handleReset() {
     setStep(0); setMode(null); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
-    setSelectedWeekOffsets([0]); setPaymentMethod(""); setPaymentType("full"); setDepositAmount("");
+    setSelectedWeekOffsets([0]); setPaymentMethod("");
     setConfirmed(false); setError("");
     if (!isLoggedIn) { setName(""); setPhone(""); setEmail(""); }
   }
@@ -267,7 +265,7 @@ export function BookingFlow() {
       }
 
       const recurrenceGroup = selectedWeekOffsets.length > 1 ? crypto.randomUUID() : null;
-      const declaredDeposit = paymentType === "deposit" ? parseInt(depositAmount) || 0 : totalPrice;
+      const declaredDeposit = totalPrice;
 
       // Create all reservations
       const inserts = [];
@@ -338,7 +336,7 @@ export function BookingFlow() {
 
   // ─── CONFIRMED VIEW ──────────────────────────────────
   if (confirmed) {
-    const declaredDeposit = paymentType === "deposit" ? parseInt(depositAmount) || 0 : totalPrice;
+    const declaredDeposit = totalPrice;
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-fiver-green">
@@ -354,11 +352,8 @@ export function BookingFlow() {
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
           <p className="mb-3 text-sm text-muted-foreground">
-            Envoyez la capture d&apos;écran de votre paiement de <strong className="text-foreground">{declaredDeposit.toLocaleString()} MRU{paymentType === "deposit" ? " (acompte)" : ""}</strong> sur WhatsApp.
+            Envoyez la capture d&apos;écran de votre paiement de <strong className="text-foreground">{declaredDeposit.toLocaleString()} MRU</strong> sur WhatsApp.
           </p>
-          {paymentType === "deposit" && (
-            <p className="mb-3 text-xs text-yellow-500/90">Reste à payer : {(totalPrice - declaredDeposit).toLocaleString()} MRU</p>
-          )}
           <a href={`https://wa.me/22248813822?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
             target="_blank" rel="noreferrer"
             className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors">
@@ -641,40 +636,11 @@ export function BookingFlow() {
                 </div>
               </div>
 
-              {/* Payment type: full or deposit */}
               {paymentMethod && (
                 <>
-                  <div>
-                    <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Type de paiement</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button type="button" onClick={() => setPaymentType("full")}
-                        className={cn("rounded-sm border-2 px-3 py-3 text-center text-xs font-bold uppercase transition-all",
-                          paymentType === "full" ? "border-fiver-green bg-fiver-green/10 text-fiver-green" : "border-border text-muted-foreground hover:border-muted-foreground/30")}>
-                        Totalité
-                      </button>
-                      <button type="button" onClick={() => setPaymentType("deposit")}
-                        className={cn("rounded-sm border-2 px-3 py-3 text-center text-xs font-bold uppercase transition-all",
-                          paymentType === "deposit" ? "border-yellow-500 bg-yellow-500/10 text-yellow-400" : "border-border text-muted-foreground hover:border-muted-foreground/30")}>
-                        Acompte
-                      </button>
-                    </div>
-                  </div>
-
-                  {paymentType === "deposit" && (
-                    <div>
-                      <label htmlFor="deposit-amount" className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Montant de l&apos;acompte (MRU)</label>
-                      <input id="deposit-amount" type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder={`Total : ${totalPrice.toLocaleString()} MRU`} min={1} max={totalPrice}
-                        className="w-full rounded-sm border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green" />
-                      {depositAmount && parseInt(depositAmount) < totalPrice && (
-                        <p className="mt-1 text-xs text-yellow-500/80">Reste à payer : {(totalPrice - parseInt(depositAmount)).toLocaleString()} MRU</p>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
+                  <div className="mt-4 rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
                     <p className="mb-3 text-sm font-medium text-foreground">Envoyez <strong className="text-fiver-green text-lg font-bold">
-                      {paymentType === "full" ? totalPrice.toLocaleString() : (parseInt(depositAmount) || 0).toLocaleString()} MRU</strong> ici :</p>
+                      {totalPrice.toLocaleString()} MRU</strong> ici :</p>
                     <div className="mb-3 rounded-sm bg-fiver-green/10 border border-fiver-green/20 px-4 py-4 text-center">
                       <p className="text-3xl font-black tracking-widest text-foreground">48 81 38 22</p>
                       <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
@@ -686,7 +652,7 @@ export function BookingFlow() {
 
               {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400 border border-red-500/20">{error}</div>}
 
-              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting || (paymentType === "deposit" && !depositAmount)}
+              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
                 className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-4 text-sm font-bold uppercase tracking-widest transition-all",
                   name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}>
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</> : "Confirmer ma demande"}
