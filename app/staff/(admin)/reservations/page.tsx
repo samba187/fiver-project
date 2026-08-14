@@ -43,9 +43,14 @@ export default function ReservationsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("pending");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
   const [newRes, setNewRes] = useState({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
+
+  // Recurrence
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringEndDate, setRecurringEndDate] = useState("");
+  const [recurringDays, setRecurringDays] = useState<number[]>([]);
 
   // Modals state
   const [payModal, setPayModal] = useState<{ isOpen: boolean; id: number | null; totalPrice: number; amountPaid: number }>({ isOpen: false, id: null, totalPrice: 0, amountPaid: 0 });
@@ -109,30 +114,66 @@ export default function ReservationsPage() {
     }
   }
 
+  function getRecurringDates() {
+    let dates = [newRes.date];
+    if (isRecurring && recurringEndDate && recurringDays.length > 0) {
+      dates = [];
+      const current = new Date(newRes.date);
+      const end = new Date(recurringEndDate);
+      while (current <= end) {
+        if (recurringDays.includes(current.getDay())) {
+          dates.push(current.toISOString().split('T')[0]);
+        }
+        current.setDate(current.getDate() + 1);
+      }
+    }
+    return dates;
+  }
+
   async function addReservation() {
     if (!newRes.name || !newRes.phone || !newRes.date) return;
-    await supabase.from("reservations").insert({
-      name: newRes.name, phone: newRes.phone, email: newRes.email, date: newRes.date,
+    const dates = getRecurringDates();
+    if (dates.length === 0) return;
+
+    const inserts = dates.map(date => ({
+      name: newRes.name, phone: newRes.phone, email: newRes.email, date: date,
       time: newRes.time, pitch: newRes.pitch, status: "pending",
-    });
+      is_recurring: dates.length > 1
+    }));
+
+    await supabase.from("reservations").insert(inserts);
+
     const { data: existing } = await supabase.from("clients").select("id, total_bookings").eq("phone", newRes.phone).single();
     if (existing) {
-      await supabase.from("clients").update({ total_bookings: existing.total_bookings + 1, last_booking: newRes.date, name: newRes.name }).eq("id", existing.id);
+      await supabase.from("clients").update({ total_bookings: existing.total_bookings + dates.length, last_booking: dates[dates.length - 1], name: newRes.name }).eq("id", existing.id);
     } else {
+      await supabase.from("clients").insert({ name: newRes.name, phone: newRes.phone, total_bookings: dates.length, last_booking: dates[dates.length - 1] });
     }
-    setNewRes({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
-    setShowAdd(false);
-    fetchReservations();
+
+    resetForm();
   }
 
   async function blockReservation() {
     if (!newRes.date) return;
-    await supabase.from("reservations").insert({
-      name: "BLOQUÉ", phone: "00000000", email: "", date: newRes.date,
+    const dates = getRecurringDates();
+    if (dates.length === 0) return;
+
+    const inserts = dates.map(date => ({
+      name: "BLOQUÉ", phone: "00000000", email: "", date: date,
       time: newRes.time, pitch: newRes.pitch, status: "blocked",
-      total_price: 0, amount_paid: 0
-    });
+      total_price: 0, amount_paid: 0,
+      is_recurring: dates.length > 1
+    }));
+
+    await supabase.from("reservations").insert(inserts);
+    resetForm();
+  }
+
+  function resetForm() {
     setNewRes({ name: "", phone: "", email: "", date: "", time: TIME_OPTIONS[0], pitch: "Terrain 1" });
+    setIsRecurring(false);
+    setRecurringEndDate("");
+    setRecurringDays([]);
     setShowAdd(false);
     fetchReservations();
   }
@@ -204,10 +245,38 @@ export default function ReservationsPage() {
               <option value="Terrain 2" className="bg-fiver-black text-white">Terrain 2</option>
             </select>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 sm:mt-4">
+
+          <div className="mt-4 border-t border-white/10 pt-4">
+            <label className="flex items-center gap-2 text-sm text-white/70 cursor-pointer w-fit mb-3">
+              <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} className="rounded border-white/10 bg-white/5 text-fiver-green focus:ring-fiver-green focus:ring-offset-0 h-4 w-4" />
+              Récurrence (Optionnel)
+            </label>
+            
+            {isRecurring && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Date de fin</label>
+                  <input type="date" value={recurringEndDate} onChange={(e) => setRecurringEndDate(e.target.value)} className={inputClass} />
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Jours de la semaine</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[{v:1, l:"Lun"}, {v:2, l:"Mar"}, {v:3, l:"Mer"}, {v:4, l:"Jeu"}, {v:5, l:"Ven"}, {v:6, l:"Sam"}, {v:0, l:"Dim"}].map(day => (
+                      <button key={day.v} onClick={() => setRecurringDays(prev => prev.includes(day.v) ? prev.filter(d => d !== day.v) : [...prev, day.v])}
+                        className={cn("rounded-sm px-3 py-2 text-xs font-medium transition-colors", recurringDays.includes(day.v) ? "bg-fiver-green text-fiver-black" : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70")}>
+                        {day.l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={addReservation} className="rounded-sm bg-fiver-green px-4 py-2 text-xs font-semibold text-fiver-black hover:opacity-90 sm:text-sm">Ajouter</button>
             <button onClick={blockReservation} className="rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/20 sm:text-sm">⛔ Bloquer ce créneau</button>
-            <button onClick={() => setShowAdd(false)} className="rounded-sm px-4 py-2 text-xs text-white/40 hover:text-white/70 sm:text-sm">Annuler</button>
+            <button onClick={resetForm} className="rounded-sm px-4 py-2 text-xs text-white/40 hover:text-white/70 sm:text-sm">Annuler</button>
           </div>
         </div>
       )}
