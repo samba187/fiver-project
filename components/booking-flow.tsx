@@ -69,7 +69,6 @@ export function BookingFlow() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -225,7 +224,7 @@ export function BookingFlow() {
 
   function handleReset() {
     setStep(0); setMode(null); setSelectedDate(null); setSelectedSlot(null); setSelectedPitch(null);
-    setSelectedWeekOffsets([0]); setPaymentMethod("");
+    setSelectedWeekOffsets([0]);
     setConfirmed(false); setError("");
     if (!isLoggedIn) { setName(""); setPhone(""); setEmail(""); }
   }
@@ -234,7 +233,7 @@ export function BookingFlow() {
   function nextMonth() { if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(viewMonth + 1); }
 
   async function handleConfirm() {
-    if (!selectedDate || !selectedSlot || !selectedPitch || !paymentMethod) return;
+    if (!selectedDate || !selectedSlot || !selectedPitch) return;
 
     const trimmedName = name.trim();
     if (trimmedName.length < 2 || trimmedName.length > 50) {
@@ -290,7 +289,7 @@ export function BookingFlow() {
         inserts.push({
           name: trimmedName, phone: cleanPhone, email, date: dateStr, time: selectedSlot,
           pitch: selectedPitch, status: "pending",
-          payment_method: paymentMethod, total_price: currentPrice,
+          payment_method: "Sur place", total_price: currentPrice,
           amount_paid: 0, payment_confirmed: false,
           is_recurring: selectedWeekOffsets.length > 1,
           recurrence_group: recurrenceGroup,
@@ -336,7 +335,6 @@ export function BookingFlow() {
 
   // ─── CONFIRMED VIEW ──────────────────────────────────
   if (confirmed) {
-    const declaredDeposit = totalPrice;
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-fiver-green">
@@ -352,12 +350,12 @@ export function BookingFlow() {
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
           <p className="mb-3 text-sm text-muted-foreground">
-            Envoyez la capture d&apos;écran de votre paiement de <strong className="text-foreground">{declaredDeposit.toLocaleString()} MRU</strong> sur WhatsApp.
+            Veuillez nous contacter sur WhatsApp pour valider définitivement votre réservation.
           </p>
-          <a href={`https://wa.me/22248813822?text=${encodeURIComponent(`Salut, c'est ${name}, voici mon reçu pour ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}. Montant envoyé : ${declaredDeposit.toLocaleString()} MRU.`)}`}
+          <a href={`https://wa.me/22248813822?text=${encodeURIComponent(`Salut, c'est ${name}, je viens de réserver ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}.`)}`}
             target="_blank" rel="noreferrer"
             className="flex w-full items-center justify-center gap-2 rounded-sm bg-[#25D366] px-4 py-3 text-sm font-semibold uppercase text-white hover:bg-[#128C7E] transition-colors">
-            Envoyer mon reçu {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}
+            Confirmer sur WhatsApp
           </a>
         </div>
         <p className="mt-4 text-xs text-muted-foreground">Demande créée le {new Date().toLocaleDateString("fr-FR")} à {new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.</p>
@@ -621,40 +619,11 @@ export function BookingFlow() {
                 </div>
               </div>
 
-              {/* Payment method */}
-              <div>
-                <label className="mb-3 block text-xs font-bold uppercase tracking-wide text-muted-foreground">Moyen de paiement</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {PAYMENT_METHODS.map(pm => (
-                    <button key={pm.value} type="button" onClick={() => setPaymentMethod(pm.value)}
-                      className={cn("flex flex-col items-center gap-1.5 rounded-sm border-2 px-3 py-4 text-center transition-all",
-                        paymentMethod === pm.value ? pm.color : "border-border bg-background text-muted-foreground hover:border-muted-foreground/30")}>
-                      <pm.icon className="h-5 w-5" />
-                      <span className="text-xs font-bold uppercase tracking-wide">{pm.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {paymentMethod && (
-                <>
-                  <div className="mt-4 rounded-lg border-2 border-fiver-green/30 bg-fiver-green/5 px-5 py-4">
-                    <p className="mb-3 text-sm font-medium text-foreground">Envoyez <strong className="text-fiver-green text-lg font-bold">
-                      {totalPrice.toLocaleString()} MRU</strong> ici :</p>
-                    <div className="mb-3 rounded-sm bg-fiver-green/10 border border-fiver-green/20 px-4 py-4 text-center">
-                      <p className="text-3xl font-black tracking-widest text-foreground">48 81 38 22</p>
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-fiver-green">via {paymentMethod === "bankily" ? "Bankily" : "Masrvi"}</p>
-                    </div>
-                    <p className="text-[11px] leading-relaxed text-muted-foreground">👉 À l&apos;étape suivante, vous devrez nous envoyer la <strong>capture d&apos;écran</strong> sur WhatsApp avec votre nom. <br />⚠️ Sans preuve sous 2h, votre créneau sera libéré.</p>
-                  </div>
-                </>
-              )}
-
               {error && <div className="rounded-sm bg-red-500/10 px-3 py-2 text-xs text-red-400 border border-red-500/20">{error}</div>}
 
-              <button onClick={handleConfirm} disabled={!name || !phone || !paymentMethod || submitting}
+              <button onClick={handleConfirm} disabled={!name || !phone || submitting}
                 className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-sm py-4 text-sm font-bold uppercase tracking-widest transition-all",
-                  name && phone && paymentMethod && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}>
+                  name && phone && !submitting ? "bg-fiver-green text-fiver-black hover:scale-[1.01] hover:shadow-lg" : "cursor-not-allowed bg-secondary text-muted-foreground")}>
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</> : "Confirmer ma demande"}
               </button>
             </div>
