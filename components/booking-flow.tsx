@@ -350,7 +350,7 @@ export function BookingFlow() {
         <div className="mt-4 rounded-lg border-2 border-fiver-green/50 bg-fiver-green/10 px-5 py-4 text-left max-w-sm w-full">
           <p className="mb-2 text-sm font-bold text-foreground">⚠️ Validation requise :</p>
           <p className="mb-3 text-sm text-muted-foreground">
-            Veuillez nous contacter sur WhatsApp pour valider définitivement votre réservation.
+            Veuillez nous envoyer une avance pour confirmer votre créneau. Sans avance, votre créneau pourra être annulé. Envoyez la capture d&apos;écran de votre paiement via WhatsApp.
           </p>
           <a href={`https://wa.me/22248813822?text=${encodeURIComponent(`Salut, c'est ${name}, je viens de réserver ${totalSessions} créneau${totalSessions > 1 ? "x" : ""} (${selectedSlot}) sur ${selectedPitch}.`)}`}
             target="_blank" rel="noreferrer"
