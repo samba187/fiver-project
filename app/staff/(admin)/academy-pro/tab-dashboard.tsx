@@ -1,14 +1,32 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Registration, Tarifs } from "./page";
 import { getStatutMoisEnCours } from "./tab-inscriptions";
+
+function generateMonthOptions() {
+  const options = [];
+  const now = new Date();
+  for (let i = -6; i <= 2; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    // capitalize first letter of label
+    const formattedLabel = label.charAt(0).toUpperCase() + label.slice(1);
+    options.push({ val, label: formattedLabel });
+  }
+  return options;
+}
 
 const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
 const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
 
 export function TabDashboard({ registrations, tarifs }: { registrations: Registration[]; tarifs: Tarifs }) {
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [targetMonth, setTargetMonth] = useState(defaultMonth);
+
   const stats = useMemo(() => {
     const total = registrations.length;
     const football = registrations.filter(r => r.football).length;
@@ -17,8 +35,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
     const garcons = registrations.filter(r => r.sexe === "M").length;
     const filles = registrations.filter(r => r.sexe === "F").length;
 
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const currentMonth = targetMonth;
 
     const byCat = CATEGORIES.map(cat => {
       const players = registrations.filter(r => r.categorie_foot === cat);
@@ -72,7 +89,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
       const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
       if (isOff) return acc; // Exclude OFF kids from payment tracking
 
-      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
+      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, currentMonth);
       
       // Bottom tracking
       if (s.status === "ok" || s.status === "offert") acc.aJour++;
@@ -97,10 +114,22 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
       aJour: statusCounts.aJour, enRetard: statusCounts.enRetard, enAttente: statusCounts.enAttente,
       isAfterDeadline 
     };
-  }, [registrations, tarifs]);
+  }, [registrations, tarifs, targetMonth]);
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex justify-end">
+        <select 
+          value={targetMonth} 
+          onChange={e => setTargetMonth(e.target.value)}
+          className="rounded-md border border-white/10 bg-white/[0.02] px-4 py-2 text-sm font-medium text-white focus:border-fiver-green focus:outline-none"
+        >
+          {generateMonthOptions().map(o => (
+            <option key={o.val} value={o.val} className="bg-[#1a1a1a] text-white">{o.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
