@@ -17,45 +17,86 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
     const garcons = registrations.filter(r => r.sexe === "M").length;
     const filles = registrations.filter(r => r.sexe === "F").length;
 
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
     const byCat = CATEGORIES.map(cat => {
       const players = registrations.filter(r => r.categorie_foot === cat);
       const g = players.filter(r => r.sexe === "M").length;
       const f = players.filter(r => r.sexe === "F").length;
-      return { name: cat, nb: players.length, g, f, pct: football > 0 ? (players.length / football * 100) : 0, ca: players.reduce((s, p) => s + (p.tarif_football || 0), 0) };
+      const ca = players.reduce((s, p) => {
+        const history = p.academy_payments_history || [];
+        const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
+        return s + (isOff ? 0 : (p.tarif_football || 0));
+      }, 0);
+      return { name: cat, nb: players.length, g, f, pct: football > 0 ? (players.length / football * 100) : 0, ca };
     });
+
+    const paymentsThisMonthGlobal = registrations.flatMap(r => 
+      (r.academy_payments_history || []).filter(h => h.mois_concerne === currentMonth && h.moyen_paiement !== "OFF")
+    );
 
     const byMoyen = MOYENS_PAIEMENT.map(m => ({
       name: m,
-      total: registrations.filter(r => r.moyen_paiement === m).reduce((s, r) => s + (r.montant_paye || 0), 0)
+      total: paymentsThisMonthGlobal.filter(h => h.moyen_paiement === m).reduce((s, h) => s + h.montant, 0)
     })).filter(m => m.total > 0);
 
-    const caFootball = registrations.reduce((s, r) => s + (r.tarif_football || 0), 0);
-    const caLoisirs = registrations.reduce((s, r) => s + (r.tarif_loisirs || 0), 0);
-    const totalPaye = registrations.reduce((s, r) => s + (r.montant_paye || 0), 0);
+    let caFootball = 0;
+    let caLoisirs = 0;
+    let totalPaye = 0;
+
+    registrations.forEach(r => {
+      const history = r.academy_payments_history || [];
+      const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
+      
+      if (!isOff) {
+        caFootball += (r.tarif_football || 0);
+        caLoisirs += (r.tarif_loisirs || 0);
+      }
+
+      const payments = history.filter(h => h.mois_concerne === currentMonth && h.moyen_paiement !== "OFF");
+      totalPaye += payments.reduce((s, h) => s + h.montant, 0);
+    });
+
     const caTotal = caFootball + caLoisirs;
 
     // Frais d'inscription
     const fraisEncaisses = registrations.filter(r => r.frais_inscription_paye).reduce((s, r) => s + (r.frais_inscription || 0), 0);
     const fraisNonPayes = registrations.filter(r => !r.frais_inscription_paye).length;
 
-    const nbPaye = registrations.filter(r => r.statut_paiement === "paye").length;
-    const nbPartiel = registrations.filter(r => r.statut_paiement === "partiel").length;
-    const nbAttente = registrations.filter(r => r.statut_paiement === "en_attente").length;
     const tauxRecouvrement = caTotal > 0 ? (totalPaye / caTotal * 100) : 0;
 
     // Use unified status logic
     const statusCounts = registrations.reduce((acc, r) => {
-      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
-      if (s.status === "ok") acc.aJour++;
-      else if (s.status === "retard") acc.enRetard++;
-      else if (s.status === "offert") acc.offert++;
-      else acc.enAttente++;
-      return acc;
-    }, { aJour: 0, enRetard: 0, enAttente: 0, offert: 0 });
-    
-    const isAfterDeadline = new Date().getDate() > tarifs.jourLimitePaiement;
+      const history = r.academy_payments_history || [];
+      const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
+      if (isOff) return acc; // Exclude OFF kids from payment tracking
 
-    return { total, football, loisirs, combo, garcons, filles, byCat, byMoyen, caFootball, caLoisirs, caTotal, totalPaye, fraisEncaisses, fraisNonPayes, nbPaye, nbPartiel, nbAttente, tauxRecouvrement, ...statusCounts, isAfterDeadline };
+      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
+      
+      // Bottom tracking
+      if (s.status === "ok" || s.status === "offert") acc.aJour++;
+      else if (s.status === "retard") acc.enRetard++;
+      else acc.enAttente++;
+
+      // Top tracking
+      if (s.status === "ok" || s.status === "offert") acc.nbPaye++;
+      else if (s.status === "partiel") acc.nbPartiel++;
+      else acc.nbAttente++;
+      
+      return acc;
+    }, { aJour: 0, enRetard: 0, enAttente: 0, nbPaye: 0, nbPartiel: 0 });
+
+    const isAfterDeadline = now.getDate() > tarifs.jourLimitePaiement;
+
+    return { 
+      total, football, loisirs, combo, garcons, filles, byCat, byMoyen, 
+      caFootball, caLoisirs, caTotal, totalPaye, fraisEncaisses, fraisNonPayes, 
+      nbPaye: statusCounts.nbPaye, nbPartiel: statusCounts.nbPartiel, nbAttente: statusCounts.enAttente, 
+      tauxRecouvrement, 
+      aJour: statusCounts.aJour, enRetard: statusCounts.enRetard, enAttente: statusCounts.enAttente,
+      isAfterDeadline 
+    };
   }, [registrations, tarifs]);
 
   return (
