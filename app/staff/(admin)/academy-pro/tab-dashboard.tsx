@@ -6,13 +6,12 @@ import type { Registration, Tarifs } from "./page";
 import { getStatutMoisEnCours } from "./tab-inscriptions";
 
 function generateMonthOptions() {
-  const options = [];
+  const options = [{ val: "all", label: "Toute l'année (Historique)" }];
   const now = new Date();
   for (let i = -6; i <= 2; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-    // capitalize first letter of label
     const formattedLabel = label.charAt(0).toUpperCase() + label.slice(1);
     options.push({ val, label: formattedLabel });
   }
@@ -43,19 +42,28 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
       const f = players.filter(r => r.sexe === "F").length;
       const ca = players.reduce((s, p) => {
         const history = p.academy_payments_history || [];
-        const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
-        return s + (isOff ? 0 : (p.tarif_football || 0));
+        if (targetMonth === "all") {
+          const createdAt = p.created_at ? new Date(p.created_at) : new Date();
+          let monthsReg = (now.getFullYear() - createdAt.getFullYear()) * 12 + (now.getMonth() - createdAt.getMonth()) + 1;
+          if (p.inscription_fin_de_mois) monthsReg = Math.max(0, monthsReg - 1);
+          const offMonths = new Set(history.filter(h => h.moyen_paiement === "OFF").map(h => h.mois_concerne)).size;
+          monthsReg = Math.max(0, monthsReg - offMonths);
+          return s + (p.tarif_football || 0) * monthsReg;
+        } else {
+          const isOff = history.some(h => h.mois_concerne === targetMonth && h.moyen_paiement === "OFF");
+          return s + (isOff ? 0 : (p.tarif_football || 0));
+        }
       }, 0);
       return { name: cat, nb: players.length, g, f, pct: football > 0 ? (players.length / football * 100) : 0, ca };
     });
 
-    const paymentsThisMonthGlobal = registrations.flatMap(r => 
-      (r.academy_payments_history || []).filter(h => h.mois_concerne === currentMonth && h.moyen_paiement !== "OFF")
-    );
+    const paymentsToConsider = targetMonth === "all"
+      ? registrations.flatMap(r => (r.academy_payments_history || []).filter(h => h.moyen_paiement !== "OFF"))
+      : registrations.flatMap(r => (r.academy_payments_history || []).filter(h => h.mois_concerne === targetMonth && h.moyen_paiement !== "OFF"));
 
     const byMoyen = MOYENS_PAIEMENT.map(m => ({
       name: m,
-      total: paymentsThisMonthGlobal.filter(h => h.moyen_paiement === m).reduce((s, h) => s + h.montant, 0)
+      total: paymentsToConsider.filter(h => h.moyen_paiement === m).reduce((s, h) => s + h.montant, 0)
     })).filter(m => m.total > 0);
 
     let caFootball = 0;
@@ -64,15 +72,26 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
 
     registrations.forEach(r => {
       const history = r.academy_payments_history || [];
-      const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
       
-      if (!isOff) {
-        caFootball += (r.tarif_football || 0);
-        caLoisirs += (r.tarif_loisirs || 0);
+      if (targetMonth === "all") {
+        const createdAt = r.created_at ? new Date(r.created_at) : new Date();
+        let monthsReg = (now.getFullYear() - createdAt.getFullYear()) * 12 + (now.getMonth() - createdAt.getMonth()) + 1;
+        if (r.inscription_fin_de_mois) monthsReg = Math.max(0, monthsReg - 1);
+        const offMonths = new Set(history.filter(h => h.moyen_paiement === "OFF").map(h => h.mois_concerne)).size;
+        monthsReg = Math.max(0, monthsReg - offMonths);
+        
+        caFootball += (r.tarif_football || 0) * monthsReg;
+        caLoisirs += (r.tarif_loisirs || 0) * monthsReg;
+        totalPaye += history.filter(h => h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
+      } else {
+        const isOff = history.some(h => h.mois_concerne === targetMonth && h.moyen_paiement === "OFF");
+        if (!isOff) {
+          caFootball += (r.tarif_football || 0);
+          caLoisirs += (r.tarif_loisirs || 0);
+        }
+        const payments = history.filter(h => h.mois_concerne === targetMonth && h.moyen_paiement !== "OFF");
+        totalPaye += payments.reduce((s, h) => s + h.montant, 0);
       }
-
-      const payments = history.filter(h => h.mois_concerne === currentMonth && h.moyen_paiement !== "OFF");
-      totalPaye += payments.reduce((s, h) => s + h.montant, 0);
     });
 
     const caTotal = caFootball + caLoisirs;
@@ -85,18 +104,17 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
 
     // Use unified status logic
     const statusCounts = registrations.reduce((acc, r) => {
+      const evalMonth = targetMonth === "all" ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` : targetMonth;
       const history = r.academy_payments_history || [];
-      const isOff = history.some(h => h.mois_concerne === currentMonth && h.moyen_paiement === "OFF");
-      if (isOff) return acc; // Exclude OFF kids from payment tracking
+      const isOff = history.some(h => h.mois_concerne === evalMonth && h.moyen_paiement === "OFF");
+      if (isOff) return acc;
 
-      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, currentMonth);
+      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, evalMonth);
       
-      // Bottom tracking
       if (s.status === "ok" || s.status === "offert") acc.aJour++;
       else if (s.status === "retard") acc.enRetard++;
       else acc.enAttente++;
 
-      // Top tracking
       if (s.status === "ok" || s.status === "offert") acc.nbPaye++;
       else if (s.status === "partiel") acc.nbPartiel++;
       else acc.nbAttente++;
@@ -154,7 +172,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           <table className="w-full min-w-[500px]">
             <thead>
               <tr className="border-b border-white/5 text-left text-[10px] font-medium uppercase tracking-wide text-white/30">
-                <th className="px-3 py-2">Catégorie</th><th className="px-3 py-2">Inscrits</th><th className="px-3 py-2">Garçons</th><th className="px-3 py-2">Filles</th><th className="px-3 py-2">% Total</th><th className="px-3 py-2">CA Mensuel</th>
+                <th className="px-3 py-2">Catégorie</th><th className="px-3 py-2">Inscrits</th><th className="px-3 py-2">Garçons</th><th className="px-3 py-2">Filles</th><th className="px-3 py-2">% Total</th><th className="px-3 py-2">{targetMonth === "all" ? "CA Historique" : "CA Mensuel"}</th>
               </tr>
             </thead>
             <tbody>
@@ -187,10 +205,10 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
             <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">💰 Synthèse Financière</h2>
             <div className="flex flex-col gap-2 text-sm">
-              <div className="flex justify-between"><span className="text-white/40">CA Football Mensuel</span><span className="text-white/70">{stats.caFootball.toLocaleString()} MRU</span></div>
-              <div className="flex justify-between"><span className="text-white/40">CA Loisirs Mensuel</span><span className="text-white/70">{stats.caLoisirs.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between"><span className="text-white/40">{targetMonth === "all" ? "CA Football Historique" : "CA Football Mensuel"}</span><span className="text-white/70">{stats.caFootball.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between"><span className="text-white/40">{targetMonth === "all" ? "CA Loisirs Historique" : "CA Loisirs Mensuel"}</span><span className="text-white/70">{stats.caLoisirs.toLocaleString()} MRU</span></div>
               <hr className="my-1 border-white/5" />
-              <div className="flex justify-between font-bold"><span className="text-fiver-green">Paiements Reçus (Mois)</span><span className="text-fiver-green">{stats.totalPaye.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between font-bold"><span className="text-fiver-green">Paiements Reçus {targetMonth === "all" ? "(Total)" : "(Mois)"}</span><span className="text-fiver-green">{stats.totalPaye.toLocaleString()} MRU</span></div>
               <div className="flex justify-between"><span className="text-white/40">Taux de Recouvrement</span><span className={cn("font-bold", stats.tauxRecouvrement >= 70 ? "text-green-400" : stats.tauxRecouvrement >= 40 ? "text-amber-400" : "text-red-400")}>{stats.tauxRecouvrement.toFixed(1)}%</span></div>
               <hr className="my-1 border-white/5" />
               <div className="flex justify-between"><span className="text-amber-400">🎟️ Frais d'inscription encaissés</span><span className="text-amber-400 font-bold">{stats.fraisEncaisses.toLocaleString()} MRU</span></div>
@@ -211,7 +229,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
         </div>
 
         <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
-          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">📊 Suivi Paiement du Mois</h2>
+          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">📊 Suivi Paiement {targetMonth === "all" ? "du Mois Actuel" : "du Mois"}</h2>
           <div className="flex flex-col gap-3">
             {[
               { label: "Payé", val: stats.nbPaye, cls: "bg-green-500", total: stats.total },
