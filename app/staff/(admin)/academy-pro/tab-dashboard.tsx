@@ -52,8 +52,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   
-  // Si l'année civile en cours par défaut
-  const defaultStartMonth = `${now.getFullYear()}-01`;
+  const defaultStartMonth = defaultMonth;
   const defaultEndMonth = defaultMonth;
 
   const [startMonth, setStartMonth] = useState(defaultStartMonth);
