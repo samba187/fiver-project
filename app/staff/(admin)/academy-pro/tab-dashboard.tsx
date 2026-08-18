@@ -6,16 +6,43 @@ import type { Registration, Tarifs } from "./page";
 import { getStatutMoisEnCours } from "./tab-inscriptions";
 
 function generateMonthOptions() {
-  const options = [{ val: "all", label: "Toute l'année (Historique)" }];
+  const options = [];
   const now = new Date();
-  for (let i = -6; i <= 2; i++) {
+  for (let i = -12; i <= 2; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-    const formattedLabel = label.charAt(0).toUpperCase() + label.slice(1);
-    options.push({ val, label: formattedLabel });
+    options.push({ val, label: label.charAt(0).toUpperCase() + label.slice(1) });
   }
   return options;
+}
+
+function getMonthsBetween(start: string, end: string) {
+  const result = [];
+  let current = new Date(start + "-01");
+  const endDate = new Date(end + "-01");
+  while (current <= endDate) {
+    result.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`);
+    current.setMonth(current.getMonth() + 1);
+  }
+  return result;
+}
+
+function formatMonth(val: string) {
+  const d = new Date(val + "-01");
+  const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function shouldCountForCA(r: Registration, month: string) {
+  const history = r.academy_payments_history || [];
+  if (history.some(h => h.mois_concerne === month && h.moyen_paiement === "OFF")) return false;
+  if (!r.created_at) return true;
+  const c = new Date(r.created_at);
+  const cm = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}`;
+  if (month < cm) return false;
+  if (r.inscription_fin_de_mois && cm === month) return false;
+  return true;
 }
 
 const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
@@ -24,7 +51,13 @@ const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
 export function TabDashboard({ registrations, tarifs }: { registrations: Registration[]; tarifs: Tarifs }) {
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const [targetMonth, setTargetMonth] = useState(defaultMonth);
+  
+  // Si l'année civile en cours par défaut
+  const defaultStartMonth = `${now.getFullYear()}-01`;
+  const defaultEndMonth = defaultMonth;
+
+  const [startMonth, setStartMonth] = useState(defaultStartMonth);
+  const [endMonth, setEndMonth] = useState(defaultEndMonth);
 
   const stats = useMemo(() => {
     const total = registrations.length;
@@ -34,112 +67,122 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
     const garcons = registrations.filter(r => r.sexe === "M").length;
     const filles = registrations.filter(r => r.sexe === "F").length;
 
-    const currentMonth = targetMonth;
+    const safeStart = startMonth <= endMonth ? startMonth : endMonth;
+    const safeEnd = startMonth <= endMonth ? endMonth : startMonth;
+    const months = getMonthsBetween(safeStart, safeEnd);
+
+    // DÉTAIL MOIS PAR MOIS
+    const monthlyDetails = months.map(month => {
+      let caFootball = 0;
+      let caLoisirs = 0;
+      let totalPaye = 0;
+      let nbPaye = 0;
+      let nbPartiel = 0;
+      let nbAttente = 0;
+      let aJour = 0;
+      let enRetard = 0;
+      let enAttente = 0;
+
+      registrations.forEach(r => {
+        if (shouldCountForCA(r, month)) {
+          caFootball += (r.tarif_football || 0);
+          caLoisirs += (r.tarif_loisirs || 0);
+        }
+
+        const history = r.academy_payments_history || [];
+        const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
+        totalPaye += payments.reduce((s, h) => s + h.montant, 0);
+
+        const isOff = history.some(h => h.mois_concerne === month && h.moyen_paiement === "OFF");
+        if (!isOff) {
+           const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, month);
+           if (s.status === "ok" || s.status === "offert") { nbPaye++; aJour++; }
+           else if (s.status === "partiel") { nbPartiel++; enAttente++; }
+           else if (s.status === "retard") { nbAttente++; enRetard++; }
+           else { nbAttente++; enAttente++; }
+        }
+      });
+
+      const caTotal = caFootball + caLoisirs;
+      return {
+        month,
+        label: formatMonth(month),
+        caFootball,
+        caLoisirs,
+        caTotal,
+        totalPaye,
+        taux: caTotal > 0 ? (totalPaye / caTotal * 100) : 0,
+        nbPaye, nbPartiel, nbAttente, aJour, enRetard, enAttente
+      };
+    });
+
+    // AGRÉGATION GLOBALE SUR LA PÉRIODE
+    const caFootball = monthlyDetails.reduce((s, m) => s + m.caFootball, 0);
+    const caLoisirs = monthlyDetails.reduce((s, m) => s + m.caLoisirs, 0);
+    const caTotal = caFootball + caLoisirs;
+    const totalPaye = monthlyDetails.reduce((s, m) => s + m.totalPaye, 0);
+    const tauxRecouvrement = caTotal > 0 ? (totalPaye / caTotal * 100) : 0;
+
+    // AGRÉGATION STATUTS (Somme des retards sur toute la période)
+    const totalAJour = monthlyDetails.reduce((s, m) => s + m.aJour, 0);
+    const totalEnRetard = monthlyDetails.reduce((s, m) => s + m.enRetard, 0);
+    const totalEnAttente = monthlyDetails.reduce((s, m) => s + m.enAttente, 0);
 
     const byCat = CATEGORIES.map(cat => {
       const players = registrations.filter(r => r.categorie_foot === cat);
       const g = players.filter(r => r.sexe === "M").length;
       const f = players.filter(r => r.sexe === "F").length;
-      const ca = players.reduce((s, p) => {
-        const history = p.academy_payments_history || [];
-        if (targetMonth === "all") {
-          const createdAt = p.created_at ? new Date(p.created_at) : new Date();
-          let monthsReg = (now.getFullYear() - createdAt.getFullYear()) * 12 + (now.getMonth() - createdAt.getMonth()) + 1;
-          if (p.inscription_fin_de_mois) monthsReg = Math.max(0, monthsReg - 1);
-          const offMonths = new Set(history.filter(h => h.moyen_paiement === "OFF").map(h => h.mois_concerne)).size;
-          monthsReg = Math.max(0, monthsReg - offMonths);
-          return s + (p.tarif_football || 0) * monthsReg;
-        } else {
-          const isOff = history.some(h => h.mois_concerne === targetMonth && h.moyen_paiement === "OFF");
-          return s + (isOff ? 0 : (p.tarif_football || 0));
-        }
-      }, 0);
+      let ca = 0;
+      players.forEach(p => {
+        months.forEach(month => {
+          if (shouldCountForCA(p, month)) ca += (p.tarif_football || 0);
+        });
+      });
       return { name: cat, nb: players.length, g, f, pct: football > 0 ? (players.length / football * 100) : 0, ca };
     });
 
-    const paymentsToConsider = targetMonth === "all"
-      ? registrations.flatMap(r => (r.academy_payments_history || []).filter(h => h.moyen_paiement !== "OFF"))
-      : registrations.flatMap(r => (r.academy_payments_history || []).filter(h => h.mois_concerne === targetMonth && h.moyen_paiement !== "OFF"));
-
+    const paymentsToConsider = registrations.flatMap(r => (r.academy_payments_history || []).filter(h => months.includes(h.mois_concerne) && h.moyen_paiement !== "OFF"));
     const byMoyen = MOYENS_PAIEMENT.map(m => ({
       name: m,
       total: paymentsToConsider.filter(h => h.moyen_paiement === m).reduce((s, h) => s + h.montant, 0)
     })).filter(m => m.total > 0);
 
-    let caFootball = 0;
-    let caLoisirs = 0;
-    let totalPaye = 0;
-
-    registrations.forEach(r => {
-      const history = r.academy_payments_history || [];
-      
-      if (targetMonth === "all") {
-        const createdAt = r.created_at ? new Date(r.created_at) : new Date();
-        let monthsReg = (now.getFullYear() - createdAt.getFullYear()) * 12 + (now.getMonth() - createdAt.getMonth()) + 1;
-        if (r.inscription_fin_de_mois) monthsReg = Math.max(0, monthsReg - 1);
-        const offMonths = new Set(history.filter(h => h.moyen_paiement === "OFF").map(h => h.mois_concerne)).size;
-        monthsReg = Math.max(0, monthsReg - offMonths);
-        
-        caFootball += (r.tarif_football || 0) * monthsReg;
-        caLoisirs += (r.tarif_loisirs || 0) * monthsReg;
-        totalPaye += history.filter(h => h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
-      } else {
-        const isOff = history.some(h => h.mois_concerne === targetMonth && h.moyen_paiement === "OFF");
-        if (!isOff) {
-          caFootball += (r.tarif_football || 0);
-          caLoisirs += (r.tarif_loisirs || 0);
-        }
-        const payments = history.filter(h => h.mois_concerne === targetMonth && h.moyen_paiement !== "OFF");
-        totalPaye += payments.reduce((s, h) => s + h.montant, 0);
-      }
-    });
-
-    const caTotal = caFootball + caLoisirs;
-
-    // Frais d'inscription
     const fraisEncaisses = registrations.filter(r => r.frais_inscription_paye).reduce((s, r) => s + (r.frais_inscription || 0), 0);
     const fraisNonPayes = registrations.filter(r => !r.frais_inscription_paye).length;
 
-    const tauxRecouvrement = caTotal > 0 ? (totalPaye / caTotal * 100) : 0;
-
-    // Use unified status logic
-    const statusCounts = registrations.reduce((acc, r) => {
-      const evalMonth = targetMonth === "all" ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` : targetMonth;
-      const history = r.academy_payments_history || [];
-      const isOff = history.some(h => h.mois_concerne === evalMonth && h.moyen_paiement === "OFF");
-      if (isOff) return acc;
-
-      const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, evalMonth);
-      
-      if (s.status === "ok" || s.status === "offert") acc.aJour++;
-      else if (s.status === "retard") acc.enRetard++;
-      else acc.enAttente++;
-
-      if (s.status === "ok" || s.status === "offert") acc.nbPaye++;
-      else if (s.status === "partiel") acc.nbPartiel++;
-      else acc.nbAttente++;
-      
-      return acc;
-    }, { aJour: 0, enRetard: 0, enAttente: 0, nbPaye: 0, nbPartiel: 0 });
-
     const isAfterDeadline = now.getDate() > tarifs.jourLimitePaiement;
+
+    // The top status progress bars represent the LAST month of the range, to give a "current" snapshot, 
+    // because summing "payé" across months for progress bars doesn't map to `total inscrits` cleanly.
+    const lastMonthDetails = monthlyDetails[monthlyDetails.length - 1] || { nbPaye: 0, nbPartiel: 0, nbAttente: 0 };
 
     return { 
       total, football, loisirs, combo, garcons, filles, byCat, byMoyen, 
       caFootball, caLoisirs, caTotal, totalPaye, fraisEncaisses, fraisNonPayes, 
-      nbPaye: statusCounts.nbPaye, nbPartiel: statusCounts.nbPartiel, nbAttente: statusCounts.enAttente, 
+      nbPaye: lastMonthDetails.nbPaye, nbPartiel: lastMonthDetails.nbPartiel, nbAttente: lastMonthDetails.nbAttente, 
       tauxRecouvrement, 
-      aJour: statusCounts.aJour, enRetard: statusCounts.enRetard, enAttente: statusCounts.enAttente,
-      isAfterDeadline 
+      aJour: totalAJour, enRetard: totalEnRetard, enAttente: totalEnAttente,
+      isAfterDeadline, monthlyDetails
     };
-  }, [registrations, tarifs, targetMonth]);
+  }, [registrations, tarifs, startMonth, endMonth]);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3 items-center">
+        <span className="text-sm text-white/50">Période du :</span>
         <select 
-          value={targetMonth} 
-          onChange={e => setTargetMonth(e.target.value)}
+          value={startMonth} 
+          onChange={e => setStartMonth(e.target.value)}
+          className="rounded-md border border-white/10 bg-white/[0.02] px-4 py-2 text-sm font-medium text-white focus:border-fiver-green focus:outline-none"
+        >
+          {generateMonthOptions().map(o => (
+            <option key={o.val} value={o.val} className="bg-[#1a1a1a] text-white">{o.label}</option>
+          ))}
+        </select>
+        <span className="text-sm text-white/50">au</span>
+        <select 
+          value={endMonth} 
+          onChange={e => setEndMonth(e.target.value)}
           className="rounded-md border border-white/10 bg-white/[0.02] px-4 py-2 text-sm font-medium text-white focus:border-fiver-green focus:outline-none"
         >
           {generateMonthOptions().map(o => (
@@ -172,7 +215,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           <table className="w-full min-w-[500px]">
             <thead>
               <tr className="border-b border-white/5 text-left text-[10px] font-medium uppercase tracking-wide text-white/30">
-                <th className="px-3 py-2">Catégorie</th><th className="px-3 py-2">Inscrits</th><th className="px-3 py-2">Garçons</th><th className="px-3 py-2">Filles</th><th className="px-3 py-2">% Total</th><th className="px-3 py-2">{targetMonth === "all" ? "CA Historique" : "CA Mensuel"}</th>
+                <th className="px-3 py-2">Catégorie</th><th className="px-3 py-2">Inscrits</th><th className="px-3 py-2">Garçons</th><th className="px-3 py-2">Filles</th><th className="px-3 py-2">% Total</th><th className="px-3 py-2">CA Période</th>
               </tr>
             </thead>
             <tbody>
@@ -205,10 +248,10 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
             <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">💰 Synthèse Financière</h2>
             <div className="flex flex-col gap-2 text-sm">
-              <div className="flex justify-between"><span className="text-white/40">{targetMonth === "all" ? "CA Football Historique" : "CA Football Mensuel"}</span><span className="text-white/70">{stats.caFootball.toLocaleString()} MRU</span></div>
-              <div className="flex justify-between"><span className="text-white/40">{targetMonth === "all" ? "CA Loisirs Historique" : "CA Loisirs Mensuel"}</span><span className="text-white/70">{stats.caLoisirs.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between"><span className="text-white/40">CA Football (Période)</span><span className="text-white/70">{stats.caFootball.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between"><span className="text-white/40">CA Loisirs (Période)</span><span className="text-white/70">{stats.caLoisirs.toLocaleString()} MRU</span></div>
               <hr className="my-1 border-white/5" />
-              <div className="flex justify-between font-bold"><span className="text-fiver-green">Paiements Reçus {targetMonth === "all" ? "(Total)" : "(Mois)"}</span><span className="text-fiver-green">{stats.totalPaye.toLocaleString()} MRU</span></div>
+              <div className="flex justify-between font-bold"><span className="text-fiver-green">Paiements Reçus (Période)</span><span className="text-fiver-green">{stats.totalPaye.toLocaleString()} MRU</span></div>
               <div className="flex justify-between"><span className="text-white/40">Taux de Recouvrement</span><span className={cn("font-bold", stats.tauxRecouvrement >= 70 ? "text-green-400" : stats.tauxRecouvrement >= 40 ? "text-amber-400" : "text-red-400")}>{stats.tauxRecouvrement.toFixed(1)}%</span></div>
               <hr className="my-1 border-white/5" />
               <div className="flex justify-between"><span className="text-amber-400">🎟️ Frais d'inscription encaissés</span><span className="text-amber-400 font-bold">{stats.fraisEncaisses.toLocaleString()} MRU</span></div>
@@ -229,7 +272,7 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
         </div>
 
         <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
-          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">📊 Suivi Paiement {targetMonth === "all" ? "du Mois Actuel" : "du Mois"}</h2>
+          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">📊 Suivi Paiement (Fin de Période)</h2>
           <div className="flex flex-col gap-3">
             {[
               { label: "Payé", val: stats.nbPaye, cls: "bg-green-500", total: stats.total },
@@ -245,9 +288,9 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           <hr className="my-6 border-white/5" />
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-white/30">Statut temps réel (jour {new Date().getDate()}/{tarifs.jourLimitePaiement})</h3>
           <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-sm bg-green-500/10 p-3 text-center"><span className="text-green-400 font-bold block text-lg">{stats.aJour}</span><p className="text-white/30 mt-1">À jour</p></div>
-            <div className="rounded-sm bg-amber-500/10 p-3 text-center"><span className="text-amber-400 font-bold block text-lg">{stats.enAttente}</span><p className="text-white/30 mt-1">En attente</p></div>
-            <div className="rounded-sm bg-red-500/10 p-3 text-center"><span className="text-red-400 font-bold block text-lg">{stats.enRetard}</span><p className="text-white/30 mt-1">En retard</p></div>
+            <div className="rounded-sm bg-green-500/10 p-3 text-center"><span className="text-green-400 font-bold block text-lg">{stats.aJour}</span><p className="text-white/30 mt-1">À jour (Total)</p></div>
+            <div className="rounded-sm bg-amber-500/10 p-3 text-center"><span className="text-amber-400 font-bold block text-lg">{stats.enAttente}</span><p className="text-white/30 mt-1">En attente (Total)</p></div>
+            <div className="rounded-sm bg-red-500/10 p-3 text-center"><span className="text-red-400 font-bold block text-lg">{stats.enRetard}</span><p className="text-white/30 mt-1">Retards Cumulés</p></div>
           </div>
           {stats.isAfterDeadline && (
             <div className="mt-4 rounded bg-red-500/10 border border-red-500/20 p-3 text-center">
@@ -256,6 +299,38 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
           )}
         </div>
       </div>
+
+      {stats.monthlyDetails.length > 1 && (
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
+          <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">📅 Détail Mois par Mois (Période Sélectionnée)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead>
+                <tr className="border-b border-white/5 text-left text-[10px] font-medium uppercase tracking-wide text-white/30">
+                  <th className="px-3 py-2">Mois</th>
+                  <th className="px-3 py-2 text-right">CA Attendu</th>
+                  <th className="px-3 py-2 text-right">Reçu</th>
+                  <th className="px-3 py-2 text-right">Recouvrement</th>
+                  <th className="px-3 py-2 text-center">À jour</th>
+                  <th className="px-3 py-2 text-center">Retards</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.monthlyDetails.map(m => (
+                  <tr key={m.month} className="border-b border-white/5 hover:bg-white/[0.02]">
+                    <td className="px-3 py-2 text-sm font-medium text-white">{m.label}</td>
+                    <td className="px-3 py-2 text-sm text-right text-white/70">{m.caTotal.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-sm text-right font-medium text-fiver-green">{m.totalPaye.toLocaleString()}</td>
+                    <td className={cn("px-3 py-2 text-sm text-right font-bold", m.taux >= 70 ? "text-green-400" : m.taux >= 40 ? "text-amber-400" : "text-red-400")}>{m.taux.toFixed(1)}%</td>
+                    <td className="px-3 py-2 text-sm text-center text-green-400 font-bold">{m.aJour}</td>
+                    <td className="px-3 py-2 text-sm text-center text-red-400 font-bold">{m.enRetard}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
