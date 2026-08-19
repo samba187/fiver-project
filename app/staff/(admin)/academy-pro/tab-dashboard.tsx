@@ -45,6 +45,12 @@ function shouldCountForCA(r: Registration, month: string) {
   return true;
 }
 
+function getEffectiveTarif(r: Registration, tarifFoot: number) {
+  if (r.tarif_football && r.tarif_football > 0) return r.tarif_football;
+  if (r.tarif_total && r.tarif_total > 0) return r.tarif_total;
+  return tarifFoot;
+}
+
 const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
 const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
 
@@ -83,17 +89,28 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
       let enAttente = 0;
 
       registrations.forEach(r => {
+        const effectiveTarif = getEffectiveTarif(r, tarifs.tarifFoot);
         if (shouldCountForCA(r, month)) {
-          caFootball += (r.tarif_football || 0);
+          caFootball += effectiveTarif;
           caLoisirs += (r.tarif_loisirs || 0);
         }
 
         const history = r.academy_payments_history || [];
-        const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
-        totalPaye += payments.reduce((s, h) => s + h.montant, 0);
+        const hasHistory = history.length > 0;
+        
+        if (hasHistory) {
+          const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
+          totalPaye += payments.reduce((s, h) => s + h.montant, 0);
+        } else {
+          // Legacy: montant_paye is a global total, attribute it to the current real month only
+          const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          if (month === nowStr) {
+            totalPaye += (r.montant_paye || 0);
+          }
+        }
 
         const isOff = history.some(h => h.mois_concerne === month && h.moyen_paiement === "OFF");
-        if (!isOff) {
+        if (!isOff && shouldCountForCA(r, month)) {
            const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot, month);
            if (s.status === "ok" || s.status === "offert") { nbPaye++; aJour++; }
            else if (s.status === "partiel") { nbPartiel++; enAttente++; }
@@ -133,8 +150,9 @@ export function TabDashboard({ registrations, tarifs }: { registrations: Registr
       const f = players.filter(r => r.sexe === "F").length;
       let ca = 0;
       players.forEach(p => {
+        const effectiveTarif = getEffectiveTarif(p, tarifs.tarifFoot);
         months.forEach(month => {
-          if (shouldCountForCA(p, month)) ca += (p.tarif_football || 0);
+          if (shouldCountForCA(p, month)) ca += effectiveTarif;
         });
       });
       return { name: cat, nb: players.length, g, f, pct: football > 0 ? (players.length / football * 100) : 0, ca };

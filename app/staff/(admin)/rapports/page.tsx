@@ -44,6 +44,8 @@ interface AcademyReg {
   created_at: string;
   tarif_football: number;
   tarif_loisirs: number;
+  tarif_total: number;
+  montant_paye: number;
   football: boolean;
   inscription_fin_de_mois: boolean;
   frais_inscription: number;
@@ -146,13 +148,26 @@ export default function RapportsPage() {
           if (r.inscription_fin_de_mois && cm === month) return;
         }
 
-        caTotal += (r.tarif_football || 0) + (r.tarif_loisirs || 0);
+        // Use effective tarif: tarif_football > tarif_total > 1000 (default)
+        const effectiveTarif = (r.tarif_football && r.tarif_football > 0) ? r.tarif_football : ((r.tarif_total && r.tarif_total > 0) ? r.tarif_total : 1000);
+        caTotal += effectiveTarif + (r.tarif_loisirs || 0);
 
-        const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
-        const paid = payments.reduce((s, h) => s + h.montant, 0);
+        const hasHistory = history.length > 0;
+        let paid = 0;
+        
+        if (hasHistory) {
+          const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
+          paid = payments.reduce((s, h) => s + h.montant, 0);
+        } else {
+          // Legacy fallback: attribute montant_paye to current month only
+          const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          if (month === nowStr) {
+            paid = (r.montant_paye || 0);
+          }
+        }
         totalPaye += paid;
 
-        if (paid >= (r.tarif_football || 0) + (r.tarif_loisirs || 0)) nbPaye++;
+        if (paid >= effectiveTarif + (r.tarif_loisirs || 0)) nbPaye++;
         else nbNonPaye++;
       });
 
