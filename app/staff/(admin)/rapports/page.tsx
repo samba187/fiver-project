@@ -78,7 +78,7 @@ export default function RapportsPage() {
 
       const { data: academyData } = await supabase
         .from("academy_registrations")
-        .select("id, created_at, tarif_football, tarif_loisirs, football, inscription_fin_de_mois, frais_inscription, frais_inscription_paye, academy_payments_history");
+        .select("*, academy_payments_history(*)");
       setAcademyRegs(academyData || []);
 
       setLoading(false);
