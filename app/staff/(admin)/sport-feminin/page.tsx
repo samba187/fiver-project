@@ -420,19 +420,7 @@ export default function SportFemininAdminPage() {
         
         const pdfBlob = pdf.output("blob");
         const fileName = `recu-sf-${invoicePlayer.id}-${Date.now()}.pdf`;
-        
-        const { error: uploadError } = await supabase.storage.from("academy_receipts").upload(fileName, pdfBlob, { contentType: "application/pdf" });
-        
-        let pdfUrlLine = "";
-        if (!uploadError) {
-          const { data } = supabase.storage.from("academy_receipts").getPublicUrl(fileName);
-          let finalUrl = data.publicUrl;
-          try {
-            const shortRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(finalUrl)}`);
-            if (shortRes.ok) finalUrl = await shortRes.text();
-          } catch (e) { console.warn("Erreur raccourcissement URL", e); }
-          pdfUrlLine = finalUrl;
-        }
+        pdf.save(fileName);
 
         const totalAmount = selected.reduce((acc, curr) => acc + curr.amount, 0);
         const labelsList = selected.map(i => `- ${i.label}`).join("\n");
@@ -451,7 +439,6 @@ ${labelsList}
 Montant Total : ${totalAmount} MRU
 Statut : [Payé]
 Date : ${new Date().toLocaleDateString("fr-FR")}
-${pdfUrlLine ? `\nLien vers votre reçu PDF :\n${pdfUrlLine.replace('\n', '')}` : ""}
 
 Merci de votre confiance !`;
         

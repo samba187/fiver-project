@@ -140,30 +140,8 @@ export function TabRecus({ registrations }: { registrations: Registration[] }) {
       const pdfBlob = pdf.output("blob");
       const fileName = `recu-${reg.id}-${Date.now()}.pdf`;
       
-      // Upload vers Supabase Storage
-      const { error: uploadError } = await supabase.storage.from("academy_receipts").upload(fileName, pdfBlob, {
-        contentType: "application/pdf"
-      });
-      
-      let pdfUrlLine = "";
-      if (!uploadError) {
-        const { data } = supabase.storage.from("academy_receipts").getPublicUrl(fileName);
-        let finalUrl = data.publicUrl;
-        
-        // Raccourcir l'URL pour faire plus propre via TinyURL
-        try {
-          const shortRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(finalUrl)}`);
-          if (shortRes.ok) {
-            finalUrl = await shortRes.text();
-          }
-        } catch (e) {
-          console.warn("Erreur raccourcissement URL", e);
-        }
-        
-        pdfUrlLine = finalUrl;
-      } else {
-        console.error("Upload error:", uploadError);
-      }
+      // Téléchargement direct (pas de stockage Supabase)
+      pdf.save(fileName);
 
       const msg = `=========================
 FIVEUR ACADEMY
@@ -179,7 +157,6 @@ Mensualite : ${reg.tarif_total} MRU${fraisLine}
 Montant regle : ${reg.montant_paye} MRU${reg.moyen_paiement ? ` (${reg.moyen_paiement})` : ""}
 Statut : ${reg.statut_paiement === "paye" ? "[Paye]" : reg.statut_paiement === "partiel" ? "[Partiel]" : "[En attente]"}
 ${reg.date_paiement ? `Date : ${new Date(reg.date_paiement).toLocaleDateString("fr-FR")}\n` : ""}
-${pdfUrlLine ? `\nLien vers votre impression PDF :\n${pdfUrlLine.replace('\n', '')}` : ""}
 
 Merci de votre confiance.`;
       

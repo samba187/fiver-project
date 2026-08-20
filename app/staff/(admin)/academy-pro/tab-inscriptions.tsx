@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
@@ -189,9 +190,9 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     if (!file) return;
     setUploadingObj(true);
     try {
-      const ext = file.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-      const { data, error } = await supabase.storage.from("academy_photos").upload(fileName, file, { cacheControl: "3600", upsert: false });
+      const compressed = await compressImage(file);
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+      const { data, error } = await supabase.storage.from("academy_photos").upload(fileName, compressed, { cacheControl: "3600", upsert: false, contentType: "image/jpeg" });
       if (!error && data) {
         const { data: urlData } = supabase.storage.from("academy_photos").getPublicUrl(data.path);
         if (urlData) handleFormChange({ photo_url: urlData.publicUrl });
@@ -588,19 +589,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
 
         const pdfBlob = pdf.output("blob");
         const fileName = `recu-academy-${invoicePlayer.id}-${Date.now()}.pdf`;
-
-        const { error: uploadError } = await supabase.storage.from("academy_receipts").upload(fileName, pdfBlob, { contentType: "application/pdf" });
-
-        let pdfUrlLine = "";
-        if (!uploadError) {
-          const { data } = supabase.storage.from("academy_receipts").getPublicUrl(fileName);
-          let finalUrl = data.publicUrl;
-          try {
-            const shortRes = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(finalUrl)}`);
-            if (shortRes.ok) finalUrl = await shortRes.text();
-          } catch (e) { console.warn("Erreur raccourcissement URL", e); }
-          pdfUrlLine = finalUrl;
-        }
+        pdf.save(fileName);
 
         const totalAmount = selected.reduce((acc, curr) => acc + curr.amount, 0);
         const labelsList = selected.map(i => `- ${i.label}`).join("\n");
@@ -619,7 +608,6 @@ ${labelsList}
 Montant Total : ${totalAmount} MRU
 Statut : [Payé]
 Date : ${new Date().toLocaleDateString("fr-FR")}
-${pdfUrlLine ? `\nLien vers votre reçu PDF :\n${pdfUrlLine.replace('\n', '')}` : ""}
 
 Merci de votre confiance !`;
 

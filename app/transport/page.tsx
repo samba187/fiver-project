@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compress-image";
 import { Loader2, MapPin, Camera, Bus, Calendar, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -228,9 +229,9 @@ export default function TransportPage() {
     const file = e.target.files[0];
     setUploadingPhoto(true);
     try {
-      const ext = file.name.split('.').pop();
-      const filename = `${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from("transport_photos").upload(filename, file);
+      const compressed = await compressImage(file);
+      const filename = `${Date.now()}-${Math.random().toString(36).substring(2)}.jpg`;
+      const { error: uploadError } = await supabase.storage.from("transport_photos").upload(filename, compressed, { contentType: "image/jpeg" });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("transport_photos").getPublicUrl(filename);
       setPhotoUrl(data.publicUrl);
