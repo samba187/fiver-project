@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { fetchSaisonCourante } from "@/lib/academy";
 import { Loader2, Users, Calendar, Bus, Settings, Check, X, Eye, FileText, Download, MessageCircle, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,9 +59,10 @@ export default function AdminTransportPage() {
     setLoading(true);
     try {
       if (activeTab === "parents") {
-        const { data } = await supabase.from("transport_parents").select("*").order("created_at", { ascending: false });
+        const courante = await fetchSaisonCourante();
+        const { data } = await supabase.from("transport_parents").select("*").eq("saison", courante).order("created_at", { ascending: false });
         if (data) setParents(data);
-      } 
+      }
       else if (activeTab === "bookings") {
         const { data } = await supabase.from("transport_bookings")
           .select("*, parent:parent_id(*)")

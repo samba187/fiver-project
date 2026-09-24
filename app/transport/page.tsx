@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { supabase } from "@/lib/supabase";
+import { fetchSaisonCourante } from "@/lib/academy";
 import { compressImage } from "@/lib/compress-image";
 import { Loader2, MapPin, Camera, Bus, Calendar, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -191,7 +192,8 @@ export default function TransportPage() {
         instructions_chauffeur: instructions,
         registration_id: childMatch ? childMatch.id : null,
         enfant_nom_prenom: childMatch ? `${childMatch.prenom} ${childMatch.nom}` : enfantNom,
-        statut: "en_attente"
+        statut: "en_attente",
+        saison: await fetchSaisonCourante(),
       });
 
       if (profileError) throw profileError;

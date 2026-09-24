@@ -6,6 +6,7 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
+import { getMonthStatus, generateBadgeCode } from "@/lib/academy";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
@@ -32,23 +33,6 @@ function formatPhone(phone: string | null) {
   return phone.replace(/[^0-9]/g, "");
 }
 
-function getMonthStatus(r: Registration, monthStr: string, tarifMensuel?: number): "paye" | "partiel" | "non_paye" | "off" {
-  const history = r.academy_payments_history || [];
-  const allPayments = history.filter(h => h.mois_concerne === monthStr);
-
-  // Check if month is marked as OFF (only if no real payments exist)
-  const hasOff = allPayments.some(h => h.moyen_paiement === "OFF");
-  const realPayments = allPayments.filter(h => h.moyen_paiement !== "OFF");
-
-  if (hasOff && realPayments.length === 0) return "off";
-  if (realPayments.length === 0) return "non_paye";
-
-  const totalPaid = realPayments.reduce((acc, h) => acc + h.montant, 0);
-  const seuil = tarifMensuel || r.tarif_total;
-  if (totalPaid > 0 && totalPaid >= seuil) return "paye";
-  if (totalPaid > 0) return "partiel";
-  return "paye"; // Si paiement validé à 0 (ex: exception manuelle)
-}
 
 export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifMensuel: number, targetMonth?: string): { label: string; cls: string; badgeCls: string; status: "ok" | "attente" | "retard" | "partiel" | "offert" } {
   const now = new Date();
@@ -98,9 +82,10 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   tarif_total: 0, montant_paye: 0, statut_paiement: "en_attente", date_paiement: null,
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
+  saison: null, badge_code: null,
 });
 
-export function TabInscriptions({ registrations, tarifs, onRefresh }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void }) {
+export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -232,7 +217,12 @@ export function TabInscriptions({ registrations, tarifs, onRefresh }: { registra
     if (editingId) {
       await supabase.from("academy_registrations").update(payload).eq("id", editingId);
     } else {
-      await supabase.from("academy_registrations").insert(payload);
+      // Nouvelle inscription : rattachée à la saison affichée, avec son code de carte QR
+      await supabase.from("academy_registrations").insert({
+        ...payload,
+        saison,
+        badge_code: payload.badge_code || generateBadgeCode(),
+      });
     }
     setModalOpen(false);
     onRefresh();

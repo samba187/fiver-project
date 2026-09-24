@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { fetchSaisonCourante } from "@/lib/academy";
 import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as htmlToImage from "html-to-image";
@@ -98,6 +99,7 @@ export default function SportFemininAdminPage() {
   const [editSaving, setEditSaving] = useState(false);
 
   const currentYear = new Date().getFullYear();
+  const [saison, setSaison] = useState("");
 
   useEffect(() => {
     fetchInscriptions();
@@ -105,11 +107,14 @@ export default function SportFemininAdminPage() {
 
   async function fetchInscriptions() {
     setLoading(true);
-    const { data, error } = await supabase
+    const courante = await fetchSaisonCourante();
+    setSaison(courante);
+    const { data } = await supabase
       .from("sport_feminin_inscriptions")
       .select("*, sport_feminin_payments_history(*)")
+      .eq("saison", courante)
       .order("created_at", { ascending: false });
-    
+
     if (data) setInscriptions(data as Inscription[]);
     setLoading(false);
   }
@@ -145,7 +150,8 @@ export default function SportFemininAdminPage() {
       telephone: newInsc.telephone,
       enfant_inscrit: newInsc.enfant_inscrit,
       enfant_nom_prenom: newInsc.enfant_inscrit ? newInsc.enfant_nom_prenom : null,
-      statut: "confirmé"
+      statut: "confirmé",
+      saison,
     });
 
     setAddSaving(false);
