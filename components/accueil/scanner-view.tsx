@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { getMonthStatus, currentMonthStr, fetchSaisonCourante, type MonthStatus } from "@/lib/academy";
+import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, type MonthStatus } from "@/lib/academy";
 
 interface ScanRegistration {
   id: number;
@@ -25,7 +25,7 @@ interface ScanRegistration {
 }
 
 type ScanResult =
-  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; enDelai?: boolean; derniereVenue?: string | null }
+  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; enDelai?: boolean; avantSaison?: boolean; derniereVenue?: string | null }
   | { kind: "deja_scanne"; reg: ScanRegistration; heure: string }
   | { kind: "autre_saison"; nom: string; saison: string }
   | { kind: "inconnu"; code: string };
@@ -320,7 +320,10 @@ export default function ScannerView() {
       return;
     }
 
-    const statut = getMonthStatus(reg, currentMonthStr(), tarifMensuel || undefined);
+    // Saison lancée en avance (ex : le 30 septembre) : rien à payer avant son premier mois
+    const debut = debutSaison(saisonRef.current);
+    const avantSaison = !!debut && currentMonthStr() < debut;
+    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), tarifMensuel || undefined);
     const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
     const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
 
@@ -333,7 +336,7 @@ export default function ScannerView() {
     } else {
       beep(880, 0.1);
       navigator.vibrate?.(60);
-      setResult({ kind: "ok", reg, statut, pending: false, enDelai });
+      setResult({ kind: "ok", reg, statut, pending: false, enDelai, avantSaison });
       enregistrerPresence(reg, statut, true);
       scheduleDismiss();
     }
@@ -644,7 +647,9 @@ export default function ScannerView() {
                 tone === "ok" ? "bg-fiver-green text-fiver-black" : tone === "warn" ? "bg-amber-400 text-black" : "bg-red-500 text-white"
               )}>
                 {tone === "ok" ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                {result.enDelai ? `Mois pas encore payé — jusqu'au ${jourLimiteRef.current}` : STATUT_UI[result.statut].label}
+                {result.avantSaison ? `Saison ${saison} — pas encore commencée`
+                  : result.enDelai ? `Mois pas encore payé — jusqu'au ${jourLimiteRef.current}`
+                  : STATUT_UI[result.statut].label}
               </div>
 
               <p className="mt-3 text-xs text-white/50">
