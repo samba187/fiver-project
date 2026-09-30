@@ -4,6 +4,31 @@ export const SAISON_FALLBACK = "2025-2026";
 
 export type MonthStatus = "paye" | "partiel" | "non_paye" | "off";
 
+export const ACADEMY_CATEGORIES = ["Baby", "U5/U7", "U9", "U11", "U12F", "U13", "U15", "U15F", "U17", "U19", "Senior"];
+
+export const CATEGORY_AGES: Record<string, string> = {
+  "Baby": "2-4 ans",
+  "U5/U7": "5-7 ans",
+  "U17": "16-17 ans",
+  "U19": "18-19 ans",
+  "Senior": "20 ans et +",
+};
+
+export function categorieParAge(age: number | null, isGirl: boolean): string {
+  if (age === null || age < 2) return "";
+  if (age <= 4) return "Baby";
+  if (age <= 7) return "U5/U7";
+  if (isGirl && age <= 12) return "U12F";
+  if (isGirl && age <= 15) return "U15F";
+  if (age <= 9) return "U9";
+  if (age <= 11) return "U11";
+  if (age <= 13) return "U13";
+  if (age <= 15) return "U15";
+  if (age <= 17) return "U17";
+  if (age <= 19) return "U19";
+  return "Senior";
+}
+
 export interface PaymentHistoryEntry {
   mois_concerne: string;
   montant: number;

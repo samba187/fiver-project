@@ -20,6 +20,7 @@ interface ScanRegistration {
   tarif_total: number;
   football: boolean;
   centre_loisirs: boolean;
+  autorisation_sortie: boolean | null;
   academy_payments_history?: { mois_concerne: string; montant: number; moyen_paiement?: string | null }[];
 }
 
@@ -148,7 +149,7 @@ export default function ScannerView() {
 
     const { data } = await supabase
       .from("academy_registrations")
-      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, academy_payments_history(mois_concerne, montant, moyen_paiement)")
+      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
       .eq("saison", courante);
 
     const list = (data as ScanRegistration[]) || [];
@@ -550,6 +551,9 @@ export default function ScannerView() {
               <div key={i} className="flex items-center gap-3 border-b border-white/5 bg-white/[0.01] px-4 py-2.5">
                 <span className="font-mono text-xs text-white/30">{j.heure}</span>
                 <span className="min-w-0 flex-1 truncate text-sm text-white/80">{j.nom}</span>
+                {j.autorise && indexRef.current[j.badge_code]?.autorisation_sortie === false && (
+                  <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300" title="Ne rentre pas seul">Pas seul</span>
+                )}
                 {!j.autorise && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Refusé</span>}
                 {j.statut === "non_paye" && j.autorise && (
                   <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-400">Sans abo.</span>
@@ -614,6 +618,14 @@ export default function ScannerView() {
                 {result.reg.categorie_foot || "—"}
                 {result.reg.centre_loisirs ? " · Loisirs" : ""}
               </p>
+              {result.reg.autorisation_sortie !== null && (
+                <p className={cn(
+                  "mt-3 rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-wide",
+                  result.reg.autorisation_sortie ? "bg-white/10 text-white/70" : "bg-red-500/20 text-red-200"
+                )}>
+                  {result.reg.autorisation_sortie ? "Peut rentrer seul" : "Ne rentre pas seul — un adulte vient le chercher"}
+                </p>
+              )}
 
               <div className={cn(
                 "mt-6 flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold uppercase tracking-wide",

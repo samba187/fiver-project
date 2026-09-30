@@ -6,13 +6,13 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge } from "@/lib/academy";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
 
 const inputClass = "w-full rounded-md border border-white/10 bg-[#1a1a1a] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green transition-colors";
-const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
+const CATEGORIES = ACADEMY_CATEGORIES;
 const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
 
 const ALL_MONTHS = [
@@ -82,7 +82,7 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   tarif_total: 0, montant_paye: 0, statut_paiement: "en_attente", date_paiement: null,
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
-  deja_inscrit: false, saison: null, badge_code: null,
+  deja_inscrit: false, autorisation_sortie: null, saison: null, badge_code: null,
 });
 
 type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code">;
@@ -138,26 +138,12 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
     });
   }, [registrations, search, filterCat, filterStatus, tarifs.jourLimitePaiement]);
 
-  function determineCategory(age: number | null, isGirl: boolean): string {
-    if (!age) return "";
-    if (isGirl) {
-      if (age <= 12) return "U12F";
-      return "U15F";
-    }
-    if (age <= 5) return "U5";
-    if (age <= 7) return "U7";
-    if (age <= 9) return "U9";
-    if (age <= 11) return "U11";
-    if (age <= 13) return "U13";
-    return "U15";
-  }
-
   function handleFormChange(updates: Partial<typeof form>) {
     setForm(prev => {
       const next = { ...prev, ...updates };
       if (updates.date_naissance !== undefined || updates.sexe !== undefined) {
-        const age = calcAge(next.date_naissance);
-        if (age) next.categorie_foot = determineCategory(age, next.sexe === "F");
+        const cat = categorieParAge(calcAge(next.date_naissance), next.sexe === "F");
+        if (cat) next.categorie_foot = cat;
       }
       if (updates.football !== undefined || updates.centre_loisirs !== undefined) {
         if (next.football && next.centre_loisirs) {
@@ -1203,7 +1189,7 @@ Merci de votre confiance !`;
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Catégorie</label>
                         <select value={form.categorie_foot || ""} onChange={e => handleFormChange({ categorie_foot: e.target.value || null })} className={cn(inputClass, "font-bold text-fiver-green")}>
                           <option value="" className="bg-[#1a1a1a]">Sélectionner...</option>
-                          {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#1a1a1a]">{c}</option>)}
+                          {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#1a1a1a]">{c}{CATEGORY_AGES[c] ? ` (${CATEGORY_AGES[c]})` : ""}</option>)}
                         </select>
                       </div>
                       <div>
@@ -1216,16 +1202,57 @@ Merci de votre confiance !`;
                   {/* Frais d'inscription */}
                   <div>
                     <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />FRAIS D'INSCRIPTION<div className="h-px flex-1 bg-white/10" /></h4>
-                    <label className={cn("flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-4 transition-colors", form.deja_inscrit ? "border-amber-500/40 bg-amber-500/5" : "border-white/10 bg-white/[0.02] hover:border-white/20")}>
-                      <div className="flex items-center gap-3">
-                        <input type="checkbox" checked={form.deja_inscrit} onChange={e => handleFormChange({ deja_inscrit: e.target.checked })} className="h-5 w-5 accent-amber-500 cursor-pointer" />
-                        <div>
-                          <p className="font-bold text-white text-sm">Déjà inscrit(e) (saison précédente)</p>
-                          <p className="text-[11px] text-white/40">Sinon : nouvel inscrit, inscription + équipement complet</p>
-                        </div>
-                      </div>
-                      <span className="font-mono text-lg font-black text-fiver-green whitespace-nowrap">{form.frais_inscription} MRU</span>
-                    </label>
+                    <p className="mb-3 text-xs text-white/50">L&apos;enfant était-il déjà inscrit la saison dernière ?</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[
+                        { ancien: false, titre: "Nouvel inscrit", detail: "Inscription + équipement", montant: tarifs.fraisInscription },
+                        { ancien: true, titre: "Ancien inscrit", detail: "Équipement seulement", montant: tarifs.fraisInscriptionAncien },
+                      ].map(opt => {
+                        const actif = form.deja_inscrit === opt.ancien;
+                        return (
+                          <button
+                            key={opt.titre}
+                            type="button"
+                            onClick={() => handleFormChange({ deja_inscrit: opt.ancien })}
+                            className={cn("flex items-center gap-3 rounded-lg border p-4 text-left transition-colors", actif ? "border-fiver-green bg-fiver-green/10" : "border-white/10 bg-white/[0.02] hover:border-white/20")}
+                          >
+                            <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2", actif ? "border-fiver-green" : "border-white/30")}>
+                              {actif && <span className="h-2.5 w-2.5 rounded-full bg-fiver-green" />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-bold text-white">{opt.titre}</span>
+                              <span className="block text-[11px] text-white/40">{opt.detail}</span>
+                            </span>
+                            <span className={cn("font-mono text-base font-black whitespace-nowrap", actif ? "text-fiver-green" : "text-white/40")}>{opt.montant} MRU</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between rounded-md border border-white/5 bg-white/5 px-4 py-2.5">
+                      <span className="text-xs font-bold uppercase tracking-wide text-white/50">Frais d&apos;inscription à payer</span>
+                      <span className="font-mono text-lg font-black text-white">{form.frais_inscription} MRU</span>
+                    </div>
+                  </div>
+
+                  {/* Autorisation de sortie */}
+                  <div>
+                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />AUTORISATION DE SORTIE<div className="h-px flex-1 bg-white/10" /></h4>
+                    <p className="mb-3 text-xs text-white/50">Le parent autorise-t-il l&apos;enfant à rentrer seul après les activités ?</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { val: true, label: "Oui, peut partir seul", cls: "border-fiver-green bg-fiver-green/10 text-fiver-green" },
+                        { val: false, label: "Non, un adulte vient", cls: "border-red-500/60 bg-red-500/10 text-red-300" },
+                      ].map(opt => (
+                        <button
+                          key={String(opt.val)}
+                          type="button"
+                          onClick={() => handleFormChange({ autorisation_sortie: opt.val })}
+                          className={cn("rounded-lg border p-3 text-sm font-bold transition-colors", form.autorisation_sortie === opt.val ? opt.cls : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20")}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Contact */}

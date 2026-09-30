@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { ACADEMY_CATEGORIES } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 import { getStatutMoisEnCours } from "./tab-inscriptions";
 
@@ -51,7 +52,7 @@ function getEffectiveTarif(r: Registration, tarifFoot: number) {
   return tarifFoot;
 }
 
-const CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F"];
+const CATEGORIES = ACADEMY_CATEGORIES;
 const MOYENS_PAIEMENT = ["Bankily", "Masrvi", "Cash", "Autre"];
 
 export function TabDashboard({ registrations, tarifs }: { registrations: Registration[]; tarifs: Tarifs }) {

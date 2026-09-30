@@ -42,6 +42,7 @@ export interface Registration {
   frais_inscription_paye: boolean;
   inscription_fin_de_mois: boolean;
   deja_inscrit: boolean;
+  autorisation_sortie: boolean | null;
   saison: string | null;
   badge_code: string | null;
   academy_payments_history?: any[];
