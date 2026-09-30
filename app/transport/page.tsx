@@ -168,7 +168,7 @@ export default function TransportPage() {
     try {
       // 1. Check if phone already in academy_registrations to link
       const { data: childMatch } = await supabase.from("academy_registrations")
-        .select("id, prenom, nom").eq("telephone_parent", phone).limit(1).maybeSingle();
+        .select("id, prenom, nom").eq("telephone_parent", phone).order("saison", { ascending: false }).limit(1).maybeSingle();
 
       // 2. Sign up
       const { data: authData, error: signUpError } = await supabase.auth.signUp({

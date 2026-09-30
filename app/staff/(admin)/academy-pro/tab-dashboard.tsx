@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ACADEMY_CATEGORIES } from "@/lib/academy";
+import { ACADEMY_CATEGORIES, debutSaison } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 import { getStatutMoisEnCours } from "./tab-inscriptions";
 
@@ -38,6 +38,8 @@ function formatMonth(val: string) {
 function shouldCountForCA(r: Registration, month: string) {
   const history = r.academy_payments_history || [];
   if (history.some(h => h.mois_concerne === month && h.moyen_paiement === "OFF")) return false;
+  const debut = debutSaison(r.saison);
+  if (debut && month < debut) return false;
   if (!r.created_at) return true;
   const c = new Date(r.created_at);
   const cm = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}`;

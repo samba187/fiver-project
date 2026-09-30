@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { debutSaison, finSaison } from "@/lib/academy";
 
 function generateMonthOptions() {
   const options = [];
@@ -50,12 +51,14 @@ interface AcademyReg {
   inscription_fin_de_mois: boolean;
   frais_inscription: number;
   frais_inscription_paye: boolean;
+  saison: string | null;
   academy_payments_history: { mois_concerne: string; montant: number; moyen_paiement: string }[];
 }
 
 export default function RapportsPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [academyRegs, setAcademyRegs] = useState<AcademyReg[]>([]);
+  const [saisonCourante, setSaisonCourante] = useState("");
   const [loading, setLoading] = useState(true);
   const [priceWeekday, setPriceWeekday] = useState(10000);
   const [priceWeekend, setPriceWeekend] = useState(12000);
@@ -73,6 +76,7 @@ export default function RapportsPage() {
         const map = Object.fromEntries(settingsData.map(s => [s.key, s.value]));
         if (map.price_weekday) setPriceWeekday(parseInt(map.price_weekday));
         if (map.price_weekend) setPriceWeekend(parseInt(map.price_weekend));
+        if (map.saison_courante) setSaisonCourante(map.saison_courante);
       }
 
       const { data: resData } = await supabase.from("reservations").select("id, date, status").order("date", { ascending: false });
@@ -140,25 +144,30 @@ export default function RapportsPage() {
         const history = r.academy_payments_history || [];
         const isOff = history.some(h => h.mois_concerne === month && h.moyen_paiement === "OFF");
         if (isOff) return;
+        // Un enfant réinscrit a une fiche par saison : chacune n'est "attendue" que sur les mois de sa saison
+        // (la saison en cours continue de compter après septembre si la nouvelle n'est pas encore lancée).
+        // L'argent réellement encaissé, lui, compte toujours.
+        const debut = debutSaison(r.saison);
+        const fin = finSaison(r.saison);
+        let attendu = !(debut && month < debut) && !(fin && month > fin && r.saison !== saisonCourante);
 
-        if (r.created_at) {
+        if (attendu && r.created_at) {
           const c = new Date(r.created_at);
           const cm = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}`;
-          if (month < cm) return;
-          if (r.inscription_fin_de_mois && cm === month) return;
+          if (month < cm) attendu = false;
+          if (r.inscription_fin_de_mois && cm === month) attendu = false;
         }
 
         // Use effective tarif: tarif_football > tarif_total > 1000 (default)
         const effectiveTarif = (r.tarif_football && r.tarif_football > 0) ? r.tarif_football : ((r.tarif_total && r.tarif_total > 0) ? r.tarif_total : 1000);
-        caTotal += effectiveTarif + (r.tarif_loisirs || 0);
 
         const hasHistory = history.length > 0;
         let paid = 0;
-        
+
         if (hasHistory) {
           const payments = history.filter(h => h.mois_concerne === month && h.moyen_paiement !== "OFF");
           paid = payments.reduce((s, h) => s + h.montant, 0);
-        } else {
+        } else if (attendu) {
           // Legacy fallback: attribute montant_paye to current month only
           const nowStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
           if (month === nowStr) {
@@ -167,6 +176,8 @@ export default function RapportsPage() {
         }
         totalPaye += paid;
 
+        if (!attendu) return;
+        caTotal += effectiveTarif + (r.tarif_loisirs || 0);
         if (paid >= effectiveTarif + (r.tarif_loisirs || 0)) nbPaye++;
         else nbNonPaye++;
       });
@@ -185,7 +196,7 @@ export default function RapportsPage() {
       months, arenaMonthly, arenaTotalResa, arenaTotalPaid, arenaTotalConfirmed, arenaTotalCancelled, arenaTotalRevenue,
       academyMonthly, academyTotalCA, academyTotalPaye, academyTaux, fraisEncaisses, grandTotalRevenue,
     };
-  }, [reservations, academyRegs, startMonth, endMonth, priceWeekday, priceWeekend]);
+  }, [reservations, academyRegs, saisonCourante, startMonth, endMonth, priceWeekday, priceWeekend]);
 
   if (loading) {
     return (

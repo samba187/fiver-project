@@ -69,6 +69,8 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
       .filter(r => {
         // Skip fin de mois inscriptions in their first month
         if (r.inscription_fin_de_mois && r.created_at && new Date(r.created_at).getMonth() === new Date().getMonth()) return false;
+        // Rien à réclamer : mois offert, ou saison de la fiche pas encore commencée
+        if (getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot).status === "offert") return false;
         return true;
       })
       .filter(r => filter === "all" || getTypeRappel(r, tarifs.jourLimitePaiement, tarifs.tarifFoot).type === filter)

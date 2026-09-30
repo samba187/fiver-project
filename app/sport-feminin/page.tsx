@@ -6,6 +6,7 @@ import { Navigation } from "@/components/navigation";
 import { Footer } from "@/components/footer";
 import { Check, Calendar, Clock, MapPin, Heart, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fetchSaisonCourante } from "@/lib/academy";
 import { cn } from "@/lib/utils";
 
 const THEME_COLOR = "bg-[#c81054]"; // Magenta / Pink from the flyer
@@ -43,7 +44,8 @@ export default function SportFemininPage() {
       telephone: telephone.replace(/\D/g, ""),
       enfant_inscrit: enfantInscrit,
       enfant_nom_prenom: enfantInscrit ? enfantNomPrenom.trim() : null,
-      statut: "en_attente"
+      statut: "en_attente",
+      saison: await fetchSaisonCourante(),
     });
 
     if (dbError) {

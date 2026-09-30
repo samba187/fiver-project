@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CalendarRange, CreditCard, UserCheck, Archive, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { SAISON_FALLBACK, moisDeSaison } from "@/lib/academy";
+import { SAISON_FALLBACK, moisDeSaison, currentMonthStr } from "@/lib/academy";
 import { TabParametres } from "./tab-parametres";
 import { TabInscriptions } from "./tab-inscriptions";
 import { TabDashboard } from "./tab-dashboard";
@@ -137,6 +137,24 @@ export default function AcademyProPage() {
 
   const consultationArchive = saisonVue !== "" && saisonVue !== saisonCourante;
 
+  // Mois de la saison affichée, + tout mois portant déjà un paiement (rien ne doit être masqué),
+  // + pour la saison en cours, les mois écoulés au-delà de septembre si la suivante n'est pas lancée
+  function moisGrille() {
+    const mois = new Set(moisDeSaison(saisonVue, saisons.find(s => s.nom === saisonVue)));
+    registrations.forEach(r => (r.academy_payments_history || []).forEach((h: { mois_concerne: string }) => {
+      if (/^\d{4}-\d{2}$/.test(h.mois_concerne)) mois.add(h.mois_concerne);
+    }));
+    if (saisonVue === saisonCourante) {
+      const liste = [...mois].sort();
+      const actuel = currentMonthStr();
+      if (liste.length > 0 && liste[liste.length - 1] < actuel) {
+        const d = new Date(liste[liste.length - 1] + "-01T00:00:00");
+        while (currentMonthStr(d) < actuel) { d.setMonth(d.getMonth() + 1); mois.add(currentMonthStr(d)); }
+      }
+    }
+    return [...mois].sort();
+  }
+
   // fetchData garde l'ancienne saisonVue dans sa closure : on change la vue, le useEffect recharge
   function afficherSaison(nouvelle?: string) {
     if (nouvelle && nouvelle !== saisonVue) { setLoading(true); setSaisonVue(nouvelle); }
@@ -235,7 +253,7 @@ export default function AcademyProPage() {
           tarifs={tarifs}
           onRefresh={fetchData}
           saison={saisonVue}
-          moisSaison={moisDeSaison(saisonVue, saisons.find(s => s.nom === saisonVue))}
+          moisSaison={moisGrille()}
           saisonsPrecedentes={saisons.map(s => s.nom).filter(n => n !== saisonVue)}
           archive={consultationArchive}
         />

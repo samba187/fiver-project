@@ -6,7 +6,7 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge, debutSaison } from "@/lib/academy";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
@@ -43,6 +43,12 @@ export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifM
   const isFutureMonth = targetMonth && targetMonth > currentMonth;
   
   const dayOfMonth = now.getDate();
+
+  // Mois antérieur à la saison de la fiche (ex : septembre pour une fiche 2026-2027) : rien à payer ici
+  const debut = debutSaison(r.saison);
+  if (debut && evalMonth < debut) {
+    return { label: "— Avant la saison", cls: "text-white/30", badgeCls: "bg-white/5 text-white/30", status: "offert" };
+  }
 
   if (r.inscription_fin_de_mois && r.created_at) {
     const createdDate = new Date(r.created_at);

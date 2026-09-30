@@ -25,7 +25,7 @@ interface ScanRegistration {
 }
 
 type ScanResult =
-  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; derniereVenue?: string | null }
+  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; enDelai?: boolean; derniereVenue?: string | null }
   | { kind: "deja_scanne"; reg: ScanRegistration; heure: string }
   | { kind: "autre_saison"; nom: string; saison: string }
   | { kind: "inconnu"; code: string };
@@ -99,6 +99,8 @@ export default function ScannerView() {
   const jourRef = useRef(todayStr());
   // Badges déjà marqués présents aujourd'hui (accès autorisé) -> heure du premier passage
   const presentsRef = useRef<Map<string, string>>(new Map());
+  // Jour limite de paiement du mois (paramètres Academy) : avant, un mois non payé n'est pas un retard
+  const jourLimiteRef = useRef(10);
 
   // ---------- Feuille de présence du jour (source : la base) ----------
   const loadPresencesJour = useCallback(async () => {
@@ -144,7 +146,11 @@ export default function ScannerView() {
 
     const { data: tarifData } = await supabase.from("settings").select("value").eq("key", "academy_tarifs").maybeSingle();
     if (tarifData?.value) {
-      try { setTarifMensuel(JSON.parse(tarifData.value).tarifFoot || 0); } catch {}
+      try {
+        const t = JSON.parse(tarifData.value);
+        setTarifMensuel(t.tarifFoot || 0);
+        if (t.jourLimitePaiement) jourLimiteRef.current = t.jourLimitePaiement;
+      } catch {}
     }
 
     const { data } = await supabase
@@ -315,7 +321,8 @@ export default function ScannerView() {
     }
 
     const statut = getMonthStatus(reg, currentMonthStr(), tarifMensuel || undefined);
-    const tone = STATUT_UI[statut].tone;
+    const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
+    const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
 
     if (tone === "bad") {
       // On bloque le flux : l'agent doit décider
@@ -326,7 +333,7 @@ export default function ScannerView() {
     } else {
       beep(880, 0.1);
       navigator.vibrate?.(60);
-      setResult({ kind: "ok", reg, statut, pending: false });
+      setResult({ kind: "ok", reg, statut, pending: false, enDelai });
       enregistrerPresence(reg, statut, true);
       scheduleDismiss();
     }
@@ -433,7 +440,7 @@ export default function ScannerView() {
   }
 
   // ---------- Rendu ----------
-  const tone = result?.kind === "ok" ? STATUT_UI[result.statut].tone
+  const tone = result?.kind === "ok" ? (result.enDelai ? "warn" : STATUT_UI[result.statut].tone)
     : result?.kind === "deja_scanne" ? "ok"
     : result ? "bad" : "ok";
   const nbPresents = presentsCount(journal);
@@ -560,7 +567,7 @@ export default function ScannerView() {
                   <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300" title="Ne rentre pas seul">Pas seul</span>
                 )}
                 {!j.autorise && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Refusé</span>}
-                {j.statut === "non_paye" && j.autorise && (
+                {j.statut === "non_paye" && j.autorise && new Date().getDate() > jourLimiteRef.current && (
                   <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-400">Sans abo.</span>
                 )}
               </div>
@@ -637,7 +644,7 @@ export default function ScannerView() {
                 tone === "ok" ? "bg-fiver-green text-fiver-black" : tone === "warn" ? "bg-amber-400 text-black" : "bg-red-500 text-white"
               )}>
                 {tone === "ok" ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                {STATUT_UI[result.statut].label}
+                {result.enDelai ? `Mois pas encore payé — jusqu'au ${jourLimiteRef.current}` : STATUT_UI[result.statut].label}
               </div>
 
               <p className="mt-3 text-xs text-white/50">

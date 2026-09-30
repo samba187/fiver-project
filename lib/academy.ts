@@ -100,6 +100,18 @@ export function moisDeSaison(nom: string, dates?: { date_debut: string | null; d
   return mois;
 }
 
+/** Premier mois d'une saison "2026-2027" -> "2026-10" (les saisons vont d'octobre à septembre) */
+export function debutSaison(saison: string | null | undefined): string | null {
+  const m = saison?.match(/^(\d{4})-(\d{4})$/);
+  return m ? `${m[1]}-10` : null;
+}
+
+/** Dernier mois d'une saison "2026-2027" -> "2027-09" */
+export function finSaison(saison: string | null | undefined): string | null {
+  const m = saison?.match(/^(\d{4})-(\d{4})$/);
+  return m ? `${m[2]}-09` : null;
+}
+
 /** "2025-2026" -> "2026-2027" */
 export function suggestNextSaison(current: string): string {
   const match = current.match(/^(\d{4})-(\d{4})$/);
