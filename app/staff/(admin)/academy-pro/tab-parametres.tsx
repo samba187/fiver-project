@@ -50,10 +50,17 @@ export function TabParametres({ tarifs, setTarifs }: { tarifs: Tarifs; setTarifs
       {/* Frais d'inscription */}
       <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
         <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">🎟️ Frais d'inscription (One-time)</h2>
-        <div>
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Montant des frais d'inscription (MRU)</label>
-          <input type="number" value={tarifs.fraisInscription} onChange={e => setTarifs({ ...tarifs, fraisInscription: parseInt(e.target.value) || 0 })} className={inputClass} />
-          <p className="mt-1 text-[10px] text-white/30">Facturé une seule fois à la première inscription de chaque enfant.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Nouveaux inscrits (MRU)</label>
+            <input type="number" value={tarifs.fraisInscription} onChange={e => setTarifs({ ...tarifs, fraisInscription: parseInt(e.target.value) || 0 })} className={inputClass} />
+            <p className="mt-1 text-[10px] text-white/30">Inscription + équipement (maillot, short, chaussettes).</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Anciens inscrits (MRU)</label>
+            <input type="number" value={tarifs.fraisInscriptionAncien} onChange={e => setTarifs({ ...tarifs, fraisInscriptionAncien: parseInt(e.target.value) || 0 })} className={inputClass} />
+            <p className="mt-1 text-[10px] text-white/30">Déjà inscrit(e) la saison précédente — équipement uniquement.</p>
+          </div>
         </div>
       </div>
 
@@ -81,7 +88,8 @@ export function TabParametres({ tarifs, setTarifs }: { tarifs: Tarifs; setTarifs
           <li>⚽ Football seul : <strong className="text-white">{tarifs.tarifFoot.toLocaleString()} MRU/mois</strong></li>
           <li>🎯 Loisirs seul : <strong className="text-white">{tarifs.tarifLoisirs.toLocaleString()} MRU/mois</strong></li>
           <li>🔥 Combo Foot + Loisirs : <strong className="text-white">{tarifs.tarifCombo.toLocaleString()} MRU/mois</strong></li>
-          <li>🎟️ Frais d'inscription (1ère fois) : <strong className="text-white">{tarifs.fraisInscription.toLocaleString()} MRU</strong></li>
+          <li>🎟️ Frais d'inscription — nouveau : <strong className="text-white">{tarifs.fraisInscription.toLocaleString()} MRU</strong></li>
+          <li>🎟️ Frais d'inscription — ancien inscrit : <strong className="text-white">{tarifs.fraisInscriptionAncien.toLocaleString()} MRU</strong></li>
           <li>📅 Paiement dû entre le <strong className="text-white">1er</strong> et le <strong className="text-white">{tarifs.jourLimitePaiement}</strong> du mois</li>
           <li>🔴 En retard à partir du <strong className="text-red-400">{tarifs.jourLimitePaiement + 1}</strong> du mois</li>
           <li>📝 Inscription après le <strong className="text-amber-400">{tarifs.seuilFinDeMois}</strong> → 1er paiement mois suivant</li>

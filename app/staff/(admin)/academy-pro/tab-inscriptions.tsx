@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2 } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2, History, IdCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
@@ -82,8 +82,10 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   tarif_total: 0, montant_paye: 0, statut_paiement: "en_attente", date_paiement: null,
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
-  saison: null, badge_code: null,
+  deja_inscrit: false, saison: null, badge_code: null,
 });
+
+type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code">;
 
 export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string }) {
   const [search, setSearch] = useState("");
@@ -94,6 +96,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
   const [form, setForm] = useState(emptyForm());
   const [uploadingObj, setUploadingObj] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [suggestion, setSuggestion] = useState<SuggestionMatch | null>(null);
+  const [checkingAncien, setCheckingAncien] = useState(false);
 
   // Quick Payment mini-modal state
   const [quickPayOpen, setQuickPayOpen] = useState(false);
@@ -128,7 +132,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
       }
       if (search) {
         const s = search.toLowerCase();
-        if (!(r.nom + " " + r.prenom + " " + (r.nom_pere || "")).toLowerCase().includes(s) && !(r.telephone_parent || "").includes(s)) return false;
+        if (!(r.nom + " " + r.prenom + " " + (r.nom_pere || "") + " " + (r.badge_code || "")).toLowerCase().includes(s) && !(r.telephone_parent || "").includes(s)) return false;
       }
       return true;
     });
@@ -166,6 +170,9 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
           next.tarif_total = 0;
         }
       }
+      if (updates.deja_inscrit !== undefined) {
+        next.frais_inscription = updates.deja_inscrit ? tarifs.fraisInscriptionAncien : tarifs.fraisInscription;
+      }
       return next;
     });
   }
@@ -191,16 +198,18 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
     const f = emptyForm();
     f.frais_inscription = tarifs.fraisInscription;
     f.tarif_total = tarifs.tarifFoot;
+    f.badge_code = generateBadgeCode();
     const today = new Date().getDate();
     if (today >= tarifs.seuilFinDeMois) f.inscription_fin_de_mois = true;
     setForm(f);
+    setSuggestion(null);
     setModalOpen(true);
   }
 
   function openEdit(r: Registration) {
     setEditingId(r.id);
     const { id, created_at, academy_payments_history, ...rest } = r as any;
-    
+
     // Force recalculation of tarif based on current active parameters, discarding old imported DB values
     if (rest.football && rest.centre_loisirs) rest.tarif_total = tarifs.tarifCombo;
     else if (rest.football) rest.tarif_total = tarifs.tarifFoot;
@@ -208,7 +217,46 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
     else rest.tarif_total = 0;
 
     setForm(rest);
+    setSuggestion(null);
     setModalOpen(true);
+  }
+
+  // Détection d'un ancien inscrit (autre saison) par nom + prénom, pour proposer le tarif réduit
+  async function detectAncien(nomVal: string, prenomVal: string) {
+    if (editingId) return; // uniquement pour une nouvelle inscription
+    if (form.deja_inscrit) return; // déjà confirmé
+    const nomTrim = nomVal.trim();
+    const prenomTrim = prenomVal.trim();
+    if (!nomTrim || !prenomTrim) return;
+    setCheckingAncien(true);
+    try {
+      const { data } = await supabase
+        .from("academy_registrations")
+        .select("id, nom, prenom, nom_pere, date_naissance, sexe, telephone_parent, adresse, categorie_foot, saison, badge_code")
+        .ilike("nom", nomTrim)
+        .ilike("prenom", prenomTrim)
+        .neq("saison", saison)
+        .order("saison", { ascending: false })
+        .limit(1);
+      setSuggestion(data && data.length > 0 ? (data[0] as SuggestionMatch) : null);
+    } catch (e) {
+      console.error(e);
+    }
+    setCheckingAncien(false);
+  }
+
+  function applySuggestion(isSame: boolean) {
+    if (isSame && suggestion) {
+      handleFormChange({
+        deja_inscrit: true,
+        nom_pere: form.nom_pere || suggestion.nom_pere,
+        date_naissance: form.date_naissance || suggestion.date_naissance,
+        sexe: suggestion.sexe || form.sexe,
+        telephone_parent: form.telephone_parent || suggestion.telephone_parent,
+        adresse: form.adresse || suggestion.adresse,
+      });
+    }
+    setSuggestion(null);
   }
 
   async function saveReg() {
@@ -656,7 +704,7 @@ Merci de votre confiance !`;
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
-          <input type="text" placeholder="Rechercher nom, téléphone..." value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Rechercher nom, téléphone, code joueur..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1081,15 +1129,40 @@ Merci de votre confiance !`;
                     </button>
                   </div>
 
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/50"><IdCard className="h-3.5 w-3.5" /> Code Joueur</label>
+                    <div className="flex h-[42px] w-full items-center justify-center rounded-md border border-fiver-green/20 bg-fiver-green/5 px-4 font-mono text-base font-black tracking-[0.3em] text-fiver-green">
+                      {form.badge_code || "—"}
+                    </div>
+                    <p className="mt-1 text-[10px] text-white/30">Ce code sera imprimé sur la carte (QR + code manuel de secours).</p>
+                  </div>
+
                   <div className="flex flex-col gap-4">
                     <div>
                       <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Nom <span className="text-red-400">*</span></label>
-                      <input value={form.nom} onChange={e => handleFormChange({ nom: e.target.value.toUpperCase() })} className={inputClass} placeholder="Ex: DIALLO" />
+                      <input value={form.nom} onChange={e => handleFormChange({ nom: e.target.value.toUpperCase() })} onBlur={() => detectAncien(form.nom, form.prenom)} className={inputClass} placeholder="Ex: DIALLO" />
                     </div>
                     <div>
                       <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Prénom de l'enfant <span className="text-red-400">*</span></label>
-                      <input value={form.prenom} onChange={e => handleFormChange({ prenom: e.target.value })} className={inputClass} placeholder="Ex: Youssouf" />
+                      <input value={form.prenom} onChange={e => handleFormChange({ prenom: e.target.value })} onBlur={() => detectAncien(form.nom, form.prenom)} className={inputClass} placeholder="Ex: Youssouf" />
                     </div>
+                    {suggestion && !form.deja_inscrit && (
+                      <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                        <p className="flex items-start gap-2 text-xs text-amber-200">
+                          <History className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                          <span><strong>{suggestion.prenom} {suggestion.nom}</strong> est déjà inscrit(e) — saison <strong>{suggestion.saison}</strong>. Même enfant ?</span>
+                        </p>
+                        <div className="flex gap-2 pl-6">
+                          <button type="button" onClick={() => applySuggestion(true)} className="rounded-md bg-amber-500 px-3 py-1.5 text-[11px] font-bold text-black hover:brightness-110">
+                            Oui, ancien inscrit
+                          </button>
+                          <button type="button" onClick={() => applySuggestion(false)} className="rounded-md bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white/60 hover:bg-white/20">
+                            Non, nouveau
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {checkingAncien && <p className="text-[10px] text-white/30">Vérification des anciennes inscriptions...</p>}
                     <div>
                       <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Prénom du père</label>
                       <input value={form.nom_pere || ""} onChange={e => handleFormChange({ nom_pere: e.target.value || null })} className={inputClass} placeholder="Ex: Oumar" />
@@ -1138,6 +1211,21 @@ Merci de votre confiance !`;
                         <div className="flex h-[42px] w-full items-center rounded-md border border-white/5 bg-white/5 px-4 font-mono text-lg font-bold text-white">{form.tarif_total} MRU</div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Frais d'inscription */}
+                  <div>
+                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />FRAIS D'INSCRIPTION<div className="h-px flex-1 bg-white/10" /></h4>
+                    <label className={cn("flex cursor-pointer items-center justify-between gap-3 rounded-lg border p-4 transition-colors", form.deja_inscrit ? "border-amber-500/40 bg-amber-500/5" : "border-white/10 bg-white/[0.02] hover:border-white/20")}>
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" checked={form.deja_inscrit} onChange={e => handleFormChange({ deja_inscrit: e.target.checked })} className="h-5 w-5 accent-amber-500 cursor-pointer" />
+                        <div>
+                          <p className="font-bold text-white text-sm">Déjà inscrit(e) (saison précédente)</p>
+                          <p className="text-[11px] text-white/40">Sinon : nouvel inscrit, inscription + équipement complet</p>
+                        </div>
+                      </div>
+                      <span className="font-mono text-lg font-black text-fiver-green whitespace-nowrap">{form.frais_inscription} MRU</span>
+                    </label>
                   </div>
 
                   {/* Contact */}

@@ -41,6 +41,7 @@ export interface Registration {
   frais_inscription: number;
   frais_inscription_paye: boolean;
   inscription_fin_de_mois: boolean;
+  deja_inscrit: boolean;
   saison: string | null;
   badge_code: string | null;
   academy_payments_history?: any[];
@@ -60,6 +61,7 @@ export interface Tarifs {
   tarifLoisirs: number;
   tarifCombo: number;
   fraisInscription: number;
+  fraisInscriptionAncien: number;
   jourLimitePaiement: number;
   seuilFinDeMois: number;
 }
@@ -69,6 +71,7 @@ const DEFAULT_TARIFS: Tarifs = {
   tarifLoisirs: 10000,
   tarifCombo: 16000,
   fraisInscription: 1000,
+  fraisInscriptionAncien: 600,
   jourLimitePaiement: 10,
   seuilFinDeMois: 25,
 };

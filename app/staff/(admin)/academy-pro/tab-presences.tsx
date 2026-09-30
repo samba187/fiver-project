@@ -79,7 +79,7 @@ export function TabPresences({ registrations, saison }: { registrations: Registr
   const filteredChildren = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return registrations;
-    return registrations.filter(r => `${r.prenom} ${r.nom}`.toLowerCase().includes(q));
+    return registrations.filter(r => `${r.prenom} ${r.nom} ${r.badge_code || ""}`.toLowerCase().includes(q));
   }, [registrations, search]);
 
   const sansAbonnement = presences.filter(p => p.statut_abonnement === "non_paye").length;
@@ -172,7 +172,7 @@ export function TabPresences({ registrations, saison }: { registrations: Registr
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Rechercher un enfant..."
+                placeholder="Rechercher un enfant ou code joueur..."
                 className="w-full rounded-sm border border-white/10 bg-white/5 py-2.5 pl-10 pr-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none"
               />
             </div>

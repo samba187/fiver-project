@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Camera, Loader2, Check, AlertTriangle, X as XIcon, ScanLine,
-  CalendarClock, LogIn, Ban, KeyRound, RefreshCw,
+  CalendarClock, LogIn, Ban, KeyRound, RefreshCw, StopCircle, RotateCw, PartyPopper,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -53,6 +53,9 @@ export default function ScannerView() {
   const [journal, setJournal] = useState<{ nom: string; heure: string; statut: MonthStatus; autorise: boolean }[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState("");
+  const [syncErrors, setSyncErrors] = useState<{ nom: string; heure: string; reg: ScanRegistration; statut: MonthStatus; autorise: boolean }[]>([]);
+  const [retrying, setRetrying] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -257,7 +260,8 @@ export default function ScannerView() {
   function enregistrerPresence(reg: ScanRegistration, statut: MonthStatus, autorise: boolean) {
     const heure = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
     setJournal(prev => [{ nom: `${reg.prenom} ${reg.nom}`, heure, statut, autorise }, ...prev].slice(0, 30));
-    // Écriture optimiste : on n'attend pas le réseau pour libérer le scanner
+    // Écriture optimiste : on n'attend pas le réseau pour libérer le scanner,
+    // mais un échec (ex : session expirée) est signalé et reste rejouable via "Réessayer".
     supabase.from("academy_presences").insert({
       registration_id: reg.id,
       badge_code: reg.badge_code,
@@ -265,7 +269,35 @@ export default function ScannerView() {
       statut_abonnement: statut,
       autorise,
       scanned_by: userEmailRef.current,
-    }).then(({ error }) => { if (error) console.error("Présence non enregistrée", error); });
+    }).then(({ error }) => {
+      if (error) {
+        console.error("Présence non enregistrée", error);
+        beep(180, 0.4);
+        setSyncErrors(prev => [...prev, { nom: `${reg.prenom} ${reg.nom}`, heure, reg, statut, autorise }]);
+      }
+    });
+  }
+
+  async function retrySync() {
+    if (syncErrors.length === 0) return;
+    setRetrying(true);
+    const toRetry = syncErrors;
+    setSyncErrors([]);
+    for (const item of toRetry) {
+      const { error } = await supabase.from("academy_presences").insert({
+        registration_id: item.reg.id,
+        badge_code: item.reg.badge_code,
+        saison,
+        statut_abonnement: item.statut,
+        autorise: item.autorise,
+        scanned_by: userEmailRef.current,
+      });
+      if (error) {
+        console.error("Présence toujours non enregistrée", error);
+        setSyncErrors(prev => [...prev, item]);
+      }
+    }
+    setRetrying(false);
   }
 
   function scheduleDismiss() {
@@ -307,15 +339,42 @@ export default function ScannerView() {
             {loadingData ? "Chargement des inscrits..." : `${registrations.length} enfant(s) — saison ${saison}`}
           </p>
         </div>
-        <button
-          onClick={loadData}
-          disabled={loadingData}
-          title="Recharger la liste des inscrits"
-          className="rounded-sm bg-white/5 p-2.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <RefreshCw className={cn("h-4 w-4", loadingData && "animate-spin")} />
-        </button>
+        <div className="flex items-center gap-2">
+          {journal.length > 0 && (
+            <button
+              onClick={() => { stopCamera(); setScanning(false); setShowSummary(true); }}
+              className="flex items-center gap-2 rounded-sm bg-white/5 px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <StopCircle className="h-4 w-4" /> Terminer la session
+            </button>
+          )}
+          <button
+            onClick={loadData}
+            disabled={loadingData}
+            title="Recharger la liste des inscrits"
+            className="rounded-sm bg-white/5 p-2.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <RefreshCw className={cn("h-4 w-4", loadingData && "animate-spin")} />
+          </button>
+        </div>
       </div>
+
+      {/* Alerte de synchronisation : des présences scannées n'ont pas pu être enregistrées */}
+      {syncErrors.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <div className="flex items-center gap-2 text-xs text-red-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {syncErrors.length} présence(s) scannée(s) mais <strong>non enregistrée(s)</strong> (connexion / session).
+          </div>
+          <button
+            onClick={retrySync}
+            disabled={retrying}
+            className="flex items-center gap-2 rounded-sm bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+          >
+            {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Réessayer
+          </button>
+        </div>
+      )}
 
       {/* Zone caméra */}
       <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black">
@@ -487,6 +546,62 @@ export default function ScannerView() {
               Suivant
             </button>
           )}
+        </div>
+      )}
+
+      {/* ====== RÉCAPITULATIF DE FIN DE SESSION ====== */}
+      {showSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80" onClick={() => setShowSummary(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex flex-col items-center gap-2 border-b border-white/5 p-6 text-center">
+              <PartyPopper className="h-10 w-10 text-fiver-green" />
+              <h3 className="font-[var(--font-heading)] text-xl font-bold uppercase text-white">Session terminée</h3>
+              <p className="text-sm text-white/50">
+                <strong className="text-fiver-green">{journal.length}</strong> passage{journal.length > 1 ? "s" : ""} enregistré{journal.length > 1 ? "s" : ""} — c&apos;est bon, vous pouvez fermer.
+              </p>
+            </div>
+
+            {syncErrors.length > 0 && (
+              <div className="mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs text-red-300">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {syncErrors.length} non synchronisée(s)
+                </div>
+                <button
+                  onClick={retrySync}
+                  disabled={retrying}
+                  className="flex items-center gap-2 rounded-sm bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50"
+                >
+                  {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Réessayer
+                </button>
+              </div>
+            )}
+
+            <div className="max-h-64 overflow-y-auto p-5">
+              {journal.length === 0 ? (
+                <p className="py-6 text-center text-sm text-white/30">Aucun passage cette session.</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {journal.map((j, i) => (
+                    <div key={i} className="flex items-center gap-3 rounded-sm bg-white/[0.02] px-3 py-2">
+                      <span className="font-mono text-xs text-white/30">{j.heure}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-white/80">{j.nom}</span>
+                      {!j.autorise && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Refusé</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-white/5 p-5">
+              <button
+                onClick={() => setShowSummary(false)}
+                className="w-full rounded-xl bg-fiver-green py-3 text-sm font-black uppercase tracking-wide text-fiver-black"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
