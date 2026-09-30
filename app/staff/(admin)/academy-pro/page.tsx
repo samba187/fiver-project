@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
-import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CalendarRange, CreditCard, UserCheck, Archive, Plus } from "lucide-react";
+import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CreditCard, UserCheck, Archive, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { SAISON_FALLBACK, moisDeSaison, currentMonthStr } from "@/lib/academy";
@@ -11,7 +11,6 @@ import { TabInscriptions } from "./tab-inscriptions";
 import { TabDashboard } from "./tab-dashboard";
 import { TabRappels } from "./tab-rappels";
 import { TabRecus } from "./tab-recus";
-import { TabSaison } from "./tab-saison";
 import { TabCartes } from "./tab-cartes";
 import { TabPresences } from "./tab-presences";
 import { NouvelleSaisonModal } from "./nouvelle-saison";
@@ -86,7 +85,6 @@ const TABS = [
   { id: "cartes", label: "Cartes", icon: CreditCard },
   { id: "rappels", label: "Rappels", icon: MessageCircle },
   { id: "recus", label: "Reçus", icon: Receipt },
-  { id: "saison", label: "Saison", icon: CalendarRange },
 ];
 
 export default function AcademyProPage() {
@@ -271,9 +269,6 @@ export default function AcademyProPage() {
       {tab === "cartes" && <TabCartes registrations={registrations} saison={saisonVue} onRefresh={fetchData} />}
       {tab === "rappels" && <TabRappels registrations={registrations} tarifs={tarifs} />}
       {tab === "recus" && <TabRecus registrations={registrations} />}
-      {tab === "saison" && (
-        <TabSaison saisons={saisons} saisonCourante={saisonCourante} onRefresh={afficherSaison} />
-      )}
 
       {nouvelleSaisonOpen && (
         <NouvelleSaisonModal
