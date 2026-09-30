@@ -169,12 +169,17 @@ export default function ScannerView() {
   }, []);
 
   // Rafraîchit la feuille du jour (scans faits depuis un autre appareil) et la remet à zéro à minuit
+  // et bascule d'elle-même sur la nouvelle saison si elle a été lancée pendant que la page était ouverte
   useEffect(() => {
-    const id = setInterval(() => { loadPresencesJour(); }, 60000);
-    const onFocus = () => { loadPresencesJour(); };
-    window.addEventListener("focus", onFocus);
-    return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
-  }, [loadPresencesJour]);
+    const tick = async () => {
+      const courante = await fetchSaisonCourante();
+      if (saisonRef.current && courante !== saisonRef.current) loadData();
+      else loadPresencesJour();
+    };
+    const id = setInterval(tick, 60000);
+    window.addEventListener("focus", tick);
+    return () => { clearInterval(id); window.removeEventListener("focus", tick); };
+  }, [loadPresencesJour, loadData]);
 
   // ---------- Son ----------
   function beep(frequency: number, duration = 0.12) {

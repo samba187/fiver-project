@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { CalendarRange, Archive, ArrowRight, Check, Loader2, AlertTriangle, Users, Square, CheckSquare, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { suggestNextSaison } from "@/lib/academy";
-import type { Registration, Saison } from "./page";
+import { suggestNextSaison, categorieParAge } from "@/lib/academy";
+import type { Registration, Saison, Tarifs } from "./page";
 
 const inputClass = "w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green";
 
@@ -21,16 +21,28 @@ interface FeminineInscription {
   notes: string | null;
 }
 
+function ageAu(dob: string | null, ref: Date) {
+  if (!dob) return null;
+  return Math.floor((ref.getTime() - new Date(dob).getTime()) / 31557600000);
+}
+
+// Catégorie de l'enfant pour la nouvelle saison (il a pris un an) ; garde l'ancienne si pas de date de naissance
+function nouvelleCategorie(r: Registration) {
+  return categorieParAge(ageAu(r.date_naissance, new Date()), r.sexe === "F") || r.categorie_foot || "";
+}
+
 export function TabSaison({
   saisons,
   saisonCourante,
+  tarifs,
   onRefresh,
 }: {
   saisons: Saison[];
   saisonCourante: string;
+  tarifs: Tarifs;
   registrations: Registration[];
   saisonVue: string;
-  onRefresh: () => void;
+  onRefresh: (nouvelleSaison?: string) => void;
 }) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState(1);
@@ -49,7 +61,7 @@ export function TabSaison({
   const [nouveauNom, setNouveauNom] = useState(suggestNextSaison(saisonCourante));
   const [dateDebut, setDateDebut] = useState("");
   const [dateFin, setDateFin] = useState("");
-  const [facturerFrais, setFacturerFrais] = useState(false);
+  const [facturerFrais, setFacturerFrais] = useState(true);
 
   useEffect(() => {
     setNouveauNom(suggestNextSaison(saisonCourante));
@@ -104,82 +116,23 @@ export function TabSaison({
 
     setSaving(true);
     try {
-      // 1. Créer la nouvelle saison
-      const { error: eSaison } = await supabase.from("saisons").insert({
-        nom,
-        date_debut: dateDebut || null,
-        date_fin: dateFin || null,
-        statut: "active",
-      });
-      if (eSaison) throw eSaison;
-
-      // 2. Réinscrire les enfants sélectionnés (la carte QR est conservée)
       const aReinscrire = academyList.filter(r => selectedAcademy.has(r.id));
-      if (aReinscrire.length > 0) {
-        const nouvelles = aReinscrire.map(r => ({
-          nom: r.nom,
-          prenom: r.prenom,
-          nom_pere: r.nom_pere,
-          date_naissance: r.date_naissance,
-          sexe: r.sexe,
-          telephone_parent: r.telephone_parent,
-          adresse: r.adresse,
-          football: r.football,
-          centre_loisirs: r.centre_loisirs,
-          categorie_foot: r.categorie_foot,
-          tarif_football: r.tarif_football,
-          tarif_loisirs: r.tarif_loisirs,
-          tarif_total: r.tarif_total,
-          photo_url: r.photo_url,
-          observations: r.observations,
-          badge_code: r.badge_code,
-          frais_inscription: r.frais_inscription,
-          frais_inscription_paye: !facturerFrais,
-          montant_paye: 0,
-          statut_paiement: "en_attente",
-          inscription_fin_de_mois: false,
-          saison: nom,
-        }));
-        const { error: eReinsc } = await supabase.from("academy_registrations").insert(nouvelles);
-        if (eReinsc) throw eReinsc;
-      }
+      const { data, error: eRpc } = await supabase.rpc("cloturer_saison", {
+        p_ancienne: saisonCourante,
+        p_nouvelle: nom,
+        p_date_debut: dateDebut || null,
+        p_date_fin: dateFin || null,
+        p_academy: aReinscrire.map(r => ({ id: r.id, categorie: nouvelleCategorie(r) })),
+        p_feminine_ids: Array.from(selectedFeminine),
+        p_frais_reinscrit: tarifs.fraisInscriptionAncien,
+        p_facturer_frais: facturerFrais,
+      });
+      if (eRpc) throw eRpc;
 
-      // 3. Réinscrire les inscrites Sport Féminin sélectionnées
-      const femARein = feminineList.filter(f => selectedFeminine.has(f.id));
-      if (femARein.length > 0) {
-        const nouvellesFem = femARein.map(f => ({
-          nom: f.nom,
-          prenom: f.prenom,
-          date_naissance: f.date_naissance,
-          telephone: f.telephone,
-          enfant_inscrit: f.enfant_inscrit,
-          enfant_nom_prenom: f.enfant_nom_prenom,
-          notes: f.notes,
-          statut: "confirmé",
-          saison: nom,
-        }));
-        const { error: eFem } = await supabase.from("sport_feminin_inscriptions").insert(nouvellesFem);
-        if (eFem) throw eFem;
-      }
-
-      // 4. Archiver l'ancienne saison
-      const { error: eArch } = await supabase
-        .from("saisons")
-        .update({ statut: "archivee", archived_at: new Date().toISOString() })
-        .eq("nom", saisonCourante);
-      if (eArch) throw eArch;
-
-      // 5. Basculer la saison courante
-      const { data: existing } = await supabase.from("settings").select("key").eq("key", "saison_courante").limit(1);
-      if (existing && existing.length > 0) {
-        await supabase.from("settings").update({ value: nom }).eq("key", "saison_courante");
-      } else {
-        await supabase.from("settings").insert({ key: "saison_courante", value: nom });
-      }
-
-      setDone(`Saison ${nom} lancée — ${aReinscrire.length} enfant(s) et ${femARein.length} inscrite(s) reconduits.`);
+      const res = (data || {}) as { academy?: number; feminine?: number; transport?: number };
+      setDone(`Saison ${nom} lancée — ${res.academy ?? 0} enfant(s), ${res.feminine ?? 0} inscrite(s) Sport Féminin et ${res.transport ?? 0} compte(s) navette reconduits.`);
       setWizardOpen(false);
-      onRefresh();
+      onRefresh(nom);
     } catch (e: any) {
       console.error(e);
       setError(e?.message || "Une erreur est survenue pendant la clôture.");
@@ -225,9 +178,12 @@ export function TabSaison({
         <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-white/40">Ce que fait la clôture</h3>
         <ul className="flex flex-col gap-2 text-xs text-white/60">
           <li>— Aucune donnée n&apos;est supprimée : la saison passée reste consultable via le sélecteur en haut de page.</li>
-          <li>— Les enfants que vous cochez sont réinscrits dans la nouvelle saison avec leurs infos, leur photo et <strong className="text-white">leur carte QR actuelle</strong> (pas besoin de réimprimer).</li>
-          <li>— Les paiements mensuels repartent à zéro pour la nouvelle saison.</li>
-          <li>— Le module Navette redémarre vide : les réservations se font séance par séance.</li>
+          <li>— Les enfants que vous cochez sont réinscrits dans la nouvelle saison avec leurs infos, leur photo, leur autorisation de sortie et <strong className="text-white">leur carte QR actuelle</strong> (pas besoin de réimprimer).</li>
+          <li>— Leur catégorie est recalculée selon leur âge (ex : U9 → U11) et ils passent en <strong className="text-white">ancien inscrit ({tarifs.fraisInscriptionAncien} MRU d&apos;équipement)</strong>.</li>
+          <li>— Les paiements mensuels repartent à zéro pour la nouvelle saison. Les présences passées restent dans l&apos;historique.</li>
+          <li>— Les enfants non cochés restent dans l&apos;archive. S&apos;ils reviennent plus tard, le formulaire d&apos;inscription les reconnaît et leur garde leur carte.</li>
+          <li>— Navette : les comptes parents passent dans la nouvelle saison, les réservations continuent séance par séance.</li>
+          <li>— Tout se fait d&apos;un bloc : si une erreur survient, rien n&apos;est modifié et vous pouvez relancer.</li>
         </ul>
       </div>
 
@@ -302,9 +258,9 @@ export function TabSaison({
                 <label className="flex cursor-pointer items-start gap-3 rounded-sm border border-white/10 bg-white/[0.02] p-4">
                   <input type="checkbox" checked={facturerFrais} onChange={e => setFacturerFrais(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#00c26e]" />
                   <span>
-                    <span className="block text-sm font-medium text-white">Facturer les frais d&apos;inscription aux réinscrits</span>
+                    <span className="block text-sm font-medium text-white">Facturer l&apos;équipement aux réinscrits ({tarifs.fraisInscriptionAncien} MRU)</span>
                     <span className="mt-0.5 block text-[11px] text-white/40">
-                      Si décoché, les enfants reconduits repartent avec leurs frais d&apos;inscription déjà considérés comme réglés.
+                      Si décoché, les frais des enfants reconduits sont considérés comme déjà réglés.
                     </span>
                   </span>
                 </label>
@@ -343,7 +299,13 @@ export function TabSaison({
                             >
                               {checked ? <CheckSquare className="h-4 w-4 shrink-0 text-fiver-green" /> : <Square className="h-4 w-4 shrink-0 text-white/20" />}
                               <span className="flex-1 truncate text-sm text-white/80">{r.prenom} {r.nom}</span>
-                              {r.categorie_foot && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-white/50">{r.categorie_foot}</span>}
+                              {(r.categorie_foot || nouvelleCategorie(r)) && (
+                                <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] font-bold text-white/50">
+                                  {r.categorie_foot && nouvelleCategorie(r) !== r.categorie_foot
+                                    ? <>{r.categorie_foot} → <span className="text-fiver-green">{nouvelleCategorie(r)}</span></>
+                                    : nouvelleCategorie(r)}
+                                </span>
+                              )}
                             </button>
                           );
                         })}
@@ -399,7 +361,7 @@ export function TabSaison({
                     <li>Nouvelle saison <strong className="text-fiver-green">{nouveauNom}</strong> → active</li>
                     <li><strong className="text-white">{selectedAcademy.size}</strong> enfant(s) réinscrit(s) sur {academyList.length}</li>
                     {feminineList.length > 0 && <li><strong className="text-white">{selectedFeminine.size}</strong> inscrite(s) Sport Féminin reconduite(s)</li>}
-                    <li>Frais d&apos;inscription : <strong className="text-white">{facturerFrais ? "à facturer" : "considérés comme réglés"}</strong></li>
+                    <li>Frais des réinscrits : <strong className="text-white">{facturerFrais ? `${tarifs.fraisInscriptionAncien} MRU à payer (équipement)` : "considérés comme réglés"}</strong></li>
                   </ul>
                 </div>
                 <div className="flex items-start gap-2 rounded-sm border border-amber-500/20 bg-amber-500/5 p-3">

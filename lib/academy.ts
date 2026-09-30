@@ -70,6 +70,36 @@ export async function fetchSaisonCourante(): Promise<string> {
   return data?.value || SAISON_FALLBACK;
 }
 
+/**
+ * Mois couverts par une saison ("YYYY-MM"), d'après ses dates si elles existent,
+ * sinon octobre → septembre déduits du nom ("2026-2027").
+ */
+export function moisDeSaison(nom: string, dates?: { date_debut: string | null; date_fin: string | null }): string[] {
+  let debut: Date | null = null;
+  let fin: Date | null = null;
+  if (dates?.date_debut && dates?.date_fin) {
+    debut = new Date(dates.date_debut + "T00:00:00");
+    fin = new Date(dates.date_fin + "T00:00:00");
+  } else {
+    const match = nom.match(/^(\d{4})-(\d{4})$/);
+    if (match) {
+      debut = new Date(parseInt(match[1], 10), 9, 1);
+      fin = new Date(parseInt(match[2], 10), 8, 1);
+    }
+  }
+  if (!debut || !fin || fin < debut) {
+    const y = new Date().getFullYear();
+    return Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, "0")}`);
+  }
+  const mois: string[] = [];
+  const cur = new Date(debut.getFullYear(), debut.getMonth(), 1);
+  while (cur <= fin && mois.length < 24) {
+    mois.push(currentMonthStr(cur));
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return mois;
+}
+
 /** "2025-2026" -> "2026-2027" */
 export function suggestNextSaison(current: string): string {
   const match = current.match(/^(\d{4})-(\d{4})$/);

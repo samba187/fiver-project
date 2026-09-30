@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CalendarRange, CreditCard, UserCheck, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { SAISON_FALLBACK } from "@/lib/academy";
+import { SAISON_FALLBACK, moisDeSaison } from "@/lib/academy";
 import { TabParametres } from "./tab-parametres";
 import { TabInscriptions } from "./tab-inscriptions";
 import { TabDashboard } from "./tab-dashboard";
@@ -214,7 +214,15 @@ export default function AcademyProPage() {
       </div>
 
       {tab === "parametres" && <TabParametres tarifs={tarifs} setTarifs={setTarifs} />}
-      {tab === "inscriptions" && <TabInscriptions registrations={registrations} tarifs={tarifs} onRefresh={fetchData} saison={saisonVue} />}
+      {tab === "inscriptions" && (
+        <TabInscriptions
+          registrations={registrations}
+          tarifs={tarifs}
+          onRefresh={fetchData}
+          saison={saisonVue}
+          moisSaison={moisDeSaison(saisonVue, saisons.find(s => s.nom === saisonVue))}
+        />
+      )}
       {tab === "dashboard" && <TabDashboard registrations={registrations} tarifs={tarifs} />}
       {tab === "presences" && <TabPresences registrations={registrations} saison={saisonVue} />}
       {tab === "cartes" && <TabCartes registrations={registrations} saison={saisonVue} onRefresh={fetchData} />}
@@ -224,9 +232,14 @@ export default function AcademyProPage() {
         <TabSaison
           saisons={saisons}
           saisonCourante={saisonCourante}
+          tarifs={tarifs}
           registrations={registrations}
           saisonVue={saisonVue}
-          onRefresh={() => { setSaisonVue(""); fetchData(); }}
+          onRefresh={(nouvelle) => {
+            // fetchData garde l'ancienne saisonVue dans sa closure : on change la vue, le useEffect recharge
+            if (nouvelle && nouvelle !== saisonVue) { setLoading(true); setSaisonVue(nouvelle); }
+            else fetchData();
+          }}
         />
       )}
     </div>

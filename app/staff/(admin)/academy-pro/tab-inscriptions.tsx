@@ -85,9 +85,9 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   deja_inscrit: false, autorisation_sortie: null, saison: null, badge_code: null,
 });
 
-type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code">;
+type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code" | "photo_url" | "autorisation_sortie">;
 
-export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string }) {
+export function TabInscriptions({ registrations, tarifs, onRefresh, saison, moisSaison }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string; moisSaison: string[] }) {
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -218,7 +218,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
     try {
       const { data } = await supabase
         .from("academy_registrations")
-        .select("id, nom, prenom, nom_pere, date_naissance, sexe, telephone_parent, adresse, categorie_foot, saison, badge_code")
+        .select("id, nom, prenom, nom_pere, date_naissance, sexe, telephone_parent, adresse, categorie_foot, saison, badge_code, photo_url, autorisation_sortie")
         .ilike("nom", nomTrim)
         .ilike("prenom", prenomTrim)
         .neq("saison", saison)
@@ -240,6 +240,10 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
         sexe: suggestion.sexe || form.sexe,
         telephone_parent: form.telephone_parent || suggestion.telephone_parent,
         adresse: form.adresse || suggestion.adresse,
+        photo_url: form.photo_url || suggestion.photo_url,
+        autorisation_sortie: form.autorisation_sortie ?? suggestion.autorisation_sortie,
+        // Même enfant = même carte : on reprend son code pour que sa carte QR reste valable
+        badge_code: suggestion.badge_code || form.badge_code,
       });
     }
     setSuggestion(null);
@@ -248,15 +252,20 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison }: { 
   async function saveReg() {
     if (!form.nom || !form.prenom) return;
     const payload = { ...form, date_naissance: form.date_naissance || null };
-    if (editingId) {
-      await supabase.from("academy_registrations").update(payload).eq("id", editingId);
-    } else {
+    const { error } = editingId
+      ? await supabase.from("academy_registrations").update(payload).eq("id", editingId)
       // Nouvelle inscription : rattachée à la saison affichée, avec son code de carte QR
-      await supabase.from("academy_registrations").insert({
-        ...payload,
-        saison,
-        badge_code: payload.badge_code || generateBadgeCode(),
-      });
+      : await supabase.from("academy_registrations").insert({
+          ...payload,
+          saison,
+          badge_code: payload.badge_code || generateBadgeCode(),
+        });
+    if (error) {
+      console.error(error);
+      alert(error.code === "23505"
+        ? `Cet enfant (code ${payload.badge_code}) est déjà inscrit dans la saison ${saison}.`
+        : `L'inscription n'a pas été enregistrée : ${error.message}`);
+      return;
     }
     setModalOpen(false);
     onRefresh();
@@ -683,7 +692,6 @@ Merci de votre confiance !`;
     }, 100);
   }
 
-  const currentYear = new Date().getFullYear();
 
   return (
     <>
@@ -718,7 +726,7 @@ Merci de votre confiance !`;
               <th className="px-3 py-4">Âge</th>
               <th className="px-3 py-4">Cat.</th>
               <th className="px-3 py-4">Payé</th>
-              <th className="px-3 py-4 min-w-[340px]">Paiements (Saison {currentYear})</th>
+              <th className="px-3 py-4 min-w-[340px]">Paiements (Saison {saison})</th>
               <th className="px-3 py-4 w-24 text-center">Actions</th>
             </tr>
           </thead>
@@ -762,8 +770,9 @@ Merci de votre confiance !`;
                         FRAIS {r.frais_inscription_paye ? "✓" : ""}
                       </button>
                       <div className="mx-1 h-4 w-px bg-white/10" />
-                      {ALL_MONTHS.map(m => {
-                        const monthStr = `${currentYear}-${m.val}`;
+                      {moisSaison.map(monthStr => {
+                        const [annee, mm] = monthStr.split("-");
+                        const m = ALL_MONTHS.find(x => x.val === mm) || { val: mm, label: mm };
                         const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
                         const colors: Record<string, string> = {
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
@@ -773,10 +782,10 @@ Merci de votre confiance !`;
                         };
                         return (
                           <button
-                            key={m.val}
+                            key={monthStr}
                             onClick={(e) => { e.stopPropagation(); openMonthChoice(r, monthStr); }}
                             className={cn("h-6 w-8 text-[9px] font-bold rounded flex items-center justify-center transition-all", colors[status])}
-                            title={`${m.label} ${currentYear}`}
+                            title={`${m.label} ${annee}`}
                           >
                             {m.label}
                           </button>
