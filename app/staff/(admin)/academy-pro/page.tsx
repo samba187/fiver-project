@@ -258,7 +258,15 @@ export default function AcademyProPage() {
           archive={consultationArchive}
         />
       )}
-      {tab === "dashboard" && <TabDashboard registrations={registrations} tarifs={tarifs} />}
+      {tab === "dashboard" && (
+        <TabDashboard
+          registrations={registrations}
+          tarifs={tarifs}
+          saison={saisonVue}
+          moisSaison={moisGrille()}
+          estSaisonCourante={!consultationArchive}
+        />
+      )}
       {tab === "presences" && <TabPresences registrations={registrations} saison={saisonVue} />}
       {tab === "cartes" && <TabCartes registrations={registrations} saison={saisonVue} onRefresh={fetchData} />}
       {tab === "rappels" && <TabRappels registrations={registrations} tarifs={tarifs} />}

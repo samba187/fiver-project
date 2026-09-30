@@ -104,8 +104,9 @@ export function ImportInscritsModal({
         football: r.football,
         centre_loisirs: r.centre_loisirs,
         categorie_foot: nouvelleCategorie(r) || null,
-        tarif_football: r.tarif_football,
-        tarif_loisirs: r.tarif_loisirs,
+        // Nouvelle saison = tarifs actuels : on n'hérite pas d'un ancien prix saisi sur la fiche
+        tarif_football: 0,
+        tarif_loisirs: 0,
         tarif_total,
         photo_url: r.photo_url,
         observations: r.observations,
