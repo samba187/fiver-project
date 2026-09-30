@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
-import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CalendarRange, CreditCard, UserCheck, Archive } from "lucide-react";
+import { Settings, ClipboardList, BarChart3, MessageCircle, Receipt, PartyPopper, X as XIcon, CalendarRange, CreditCard, UserCheck, Archive, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { SAISON_FALLBACK, moisDeSaison } from "@/lib/academy";
@@ -14,6 +14,7 @@ import { TabRecus } from "./tab-recus";
 import { TabSaison } from "./tab-saison";
 import { TabCartes } from "./tab-cartes";
 import { TabPresences } from "./tab-presences";
+import { NouvelleSaisonModal } from "./nouvelle-saison";
 
 export interface Registration {
   id: number;
@@ -98,6 +99,7 @@ export default function AcademyProPage() {
   const [saisons, setSaisons] = useState<Saison[]>([]);
   const [saisonCourante, setSaisonCourante] = useState<string>(SAISON_FALLBACK);
   const [saisonVue, setSaisonVue] = useState<string>("");
+  const [nouvelleSaisonOpen, setNouvelleSaisonOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -134,6 +136,12 @@ export default function AcademyProPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const consultationArchive = saisonVue !== "" && saisonVue !== saisonCourante;
+
+  // fetchData garde l'ancienne saisonVue dans sa closure : on change la vue, le useEffect recharge
+  function afficherSaison(nouvelle?: string) {
+    if (nouvelle && nouvelle !== saisonVue) { setLoading(true); setSaisonVue(nouvelle); }
+    else fetchData();
+  }
 
   useEffect(() => {
     if (registrations.length === 0) return;
@@ -189,6 +197,13 @@ export default function AcademyProPage() {
                 </option>
               ))}
             </select>
+            <button
+              onClick={() => setNouvelleSaisonOpen(true)}
+              title="Nouvelle saison"
+              className="flex items-center gap-1 rounded-sm border border-white/10 bg-white/5 px-2.5 py-2 text-xs font-semibold text-white/70 hover:bg-white/10 hover:text-white"
+            >
+              <Plus className="h-3.5 w-3.5" /> Nouvelle
+            </button>
           </div>
         )}
       </div>
@@ -221,6 +236,8 @@ export default function AcademyProPage() {
           onRefresh={fetchData}
           saison={saisonVue}
           moisSaison={moisDeSaison(saisonVue, saisons.find(s => s.nom === saisonVue))}
+          saisonsPrecedentes={saisons.map(s => s.nom).filter(n => n !== saisonVue)}
+          archive={consultationArchive}
         />
       )}
       {tab === "dashboard" && <TabDashboard registrations={registrations} tarifs={tarifs} />}
@@ -229,17 +246,15 @@ export default function AcademyProPage() {
       {tab === "rappels" && <TabRappels registrations={registrations} tarifs={tarifs} />}
       {tab === "recus" && <TabRecus registrations={registrations} />}
       {tab === "saison" && (
-        <TabSaison
-          saisons={saisons}
+        <TabSaison saisons={saisons} saisonCourante={saisonCourante} onRefresh={afficherSaison} />
+      )}
+
+      {nouvelleSaisonOpen && (
+        <NouvelleSaisonModal
           saisonCourante={saisonCourante}
-          tarifs={tarifs}
-          registrations={registrations}
-          saisonVue={saisonVue}
-          onRefresh={(nouvelle) => {
-            // fetchData garde l'ancienne saisonVue dans sa closure : on change la vue, le useEffect recharge
-            if (nouvelle && nouvelle !== saisonVue) { setLoading(true); setSaisonVue(nouvelle); }
-            else fetchData();
-          }}
+          saisons={saisons}
+          onClose={() => setNouvelleSaisonOpen(false)}
+          onDone={(n) => { setNouvelleSaisonOpen(false); setTab("inscriptions"); afficherSaison(n); }}
         />
       )}
     </div>

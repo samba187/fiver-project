@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2, History, IdCard } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2, History, IdCard, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
@@ -10,6 +10,7 @@ import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, c
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
+import { ImportInscritsModal } from "./import-inscrits";
 
 const inputClass = "w-full rounded-md border border-white/10 bg-[#1a1a1a] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green transition-colors";
 const CATEGORIES = ACADEMY_CATEGORIES;
@@ -87,7 +88,9 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
 
 type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code" | "photo_url" | "autorisation_sortie">;
 
-export function TabInscriptions({ registrations, tarifs, onRefresh, saison, moisSaison }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string; moisSaison: string[] }) {
+export function TabInscriptions({ registrations, tarifs, onRefresh, saison, moisSaison, saisonsPrecedentes, archive }: { registrations: Registration[]; tarifs: Tarifs; onRefresh: () => void; saison: string; moisSaison: string[]; saisonsPrecedentes: string[]; archive: boolean }) {
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -706,15 +709,44 @@ Merci de votre confiance !`;
             <option value="all" className="bg-[#161616]">Toutes catégories</option>
             {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#161616]">{c}</option>)}
           </select>
-          <button onClick={openAdd} className="flex items-center gap-2 rounded-sm bg-fiver-green px-4 py-2.5 text-xs font-semibold uppercase text-fiver-black hover:opacity-90 transition-opacity">
-            <Plus className="h-4 w-4" /> Inscrire
-          </button>
+          {!archive && saisonsPrecedentes.length > 0 && (
+            <button onClick={() => { setImportMessage(""); setImportOpen(true); }} className="flex items-center gap-2 rounded-sm border border-fiver-green/40 bg-fiver-green/10 px-4 py-2.5 text-xs font-semibold uppercase text-fiver-green hover:bg-fiver-green/20 transition-colors">
+              <Download className="h-4 w-4" /> Importer
+            </button>
+          )}
+          {!archive && (
+            <button onClick={openAdd} className="flex items-center gap-2 rounded-sm bg-fiver-green px-4 py-2.5 text-xs font-semibold uppercase text-fiver-black hover:opacity-90 transition-opacity">
+              <Plus className="h-4 w-4" /> Inscrire
+            </button>
+          )}
         </div>
       </div>
+
+      {importMessage && (
+        <div className="mb-3 rounded-sm border border-fiver-green/20 bg-fiver-green/5 px-4 py-2.5 text-xs text-fiver-green">{importMessage}</div>
+      )}
 
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm text-white/40">{filtered.length} inscrit(s)</p>
       </div>
+
+      {registrations.length === 0 && !archive && (
+        <div className="mb-4 rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-5 py-8 text-center">
+          <p className="text-sm font-semibold text-white">Saison {saison} vide pour l&apos;instant</p>
+          <p className="mt-1 text-xs text-white/40">Importez les anciens enfants qui continuent, ou inscrivez les nouveaux.</p>
+        </div>
+      )}
+
+      {importOpen && (
+        <ImportInscritsModal
+          saison={saison}
+          saisonsSources={saisonsPrecedentes}
+          dejaInscrits={registrations}
+          tarifs={tarifs}
+          onClose={() => setImportOpen(false)}
+          onDone={(nb) => { setImportOpen(false); setImportMessage(`${nb} enfant(s) importé(s) dans ${saison}.`); onRefresh(); }}
+        />
+      )}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#121212] shadow-xl">

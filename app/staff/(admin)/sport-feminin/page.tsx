@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { fetchSaisonCourante } from "@/lib/academy";
-import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus, Pencil } from "lucide-react";
+import { Search, Loader2, Heart, Check, X, Phone, Trash2, Calendar, Printer, MessageCircle, AlertTriangle, Zap, Square, CheckSquare, Plus, Pencil, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
+import { ImportInscritesModal } from "./import-inscrites";
 
 const ALL_MONTHS = [
   { val: "01", label: "Jan" }, { val: "02", label: "Fév" }, { val: "03", label: "Mar" },
@@ -100,6 +101,7 @@ export default function SportFemininAdminPage() {
 
   const currentYear = new Date().getFullYear();
   const [saison, setSaison] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     fetchInscriptions();
@@ -580,11 +582,23 @@ Merci de votre confiance !`;
               {f.replace("_", " ")}
             </button>
           ))}
+          <button onClick={() => setImportOpen(true)} className="flex items-center gap-2 rounded-md border border-[#c81054]/50 bg-[#c81054]/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-[#f06b9b] hover:bg-[#c81054]/20 transition-colors">
+            <Download className="h-4 w-4" /> Importer
+          </button>
           <button onClick={() => setAddModalOpen(true)} className="flex items-center gap-2 rounded-md bg-[#c81054] px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-white hover:bg-[#a60d45] transition-colors">
             <Plus className="h-4 w-4" /> Inscrire
           </button>
         </div>
       </div>
+
+      {importOpen && saison && (
+        <ImportInscritesModal
+          saison={saison}
+          dejaInscrites={inscriptions}
+          onClose={() => setImportOpen(false)}
+          onDone={() => { setImportOpen(false); fetchInscriptions(); }}
+        />
+      )}
 
       {/* Data Table */}
       <div className="overflow-x-auto rounded-xl border border-white/5 bg-[#121212] shadow-xl">
