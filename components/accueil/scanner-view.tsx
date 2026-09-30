@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Camera, Loader2, Check, AlertTriangle, X as XIcon, ScanLine,
-  CalendarClock, LogIn, Ban, KeyRound, RefreshCw, StopCircle, RotateCw, PartyPopper,
+  CalendarClock, LogIn, Ban, KeyRound, RefreshCw, RotateCw, CheckCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -25,8 +25,32 @@ interface ScanRegistration {
 
 type ScanResult =
   | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; derniereVenue?: string | null }
+  | { kind: "deja_scanne"; reg: ScanRegistration; heure: string }
   | { kind: "autre_saison"; nom: string; saison: string }
   | { kind: "inconnu"; code: string };
+
+interface PresenceJour {
+  badge_code: string;
+  nom: string;
+  heure: string;
+  statut: MonthStatus | null;
+  autorise: boolean;
+}
+
+function todayStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function heureDe(iso: string | Date) {
+  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function presentsCount(journal: PresenceJour[]) {
+  return new Set(journal.filter(j => j.autorise).map(j => j.badge_code)).size;
+}
+
+// 23505 = violation d'unicité : l'enfant est déjà marqué présent aujourd'hui, ce n'est pas une erreur
+const isDoublon = (error: { code?: string } | null) => error?.code === "23505";
 
 const STATUT_UI: Record<MonthStatus, { label: string; tone: "ok" | "warn" | "bad"; detail: string }> = {
   paye: { label: "Abonnement à jour", tone: "ok", detail: "Accès autorisé" },
@@ -50,12 +74,12 @@ export default function ScannerView() {
   const [engine, setEngine] = useState<"native" | "zxing" | "">("");
 
   const [result, setResult] = useState<ScanResult | null>(null);
-  const [journal, setJournal] = useState<{ nom: string; heure: string; statut: MonthStatus; autorise: boolean }[]>([]);
+  const [journal, setJournal] = useState<PresenceJour[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState("");
-  const [syncErrors, setSyncErrors] = useState<{ nom: string; heure: string; reg: ScanRegistration; statut: MonthStatus; autorise: boolean }[]>([]);
+  const [syncErrors, setSyncErrors] = useState<{ nom: string; heure: string; reg: ScanRegistration; statut: MonthStatus; autorise: boolean; jour: string }[]>([]);
   const [retrying, setRetrying] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
+  const [jour, setJour] = useState(todayStr());
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -69,11 +93,52 @@ export default function ScannerView() {
   // Index badge -> inscription, pour une résolution instantanée sans aller-retour réseau
   const indexRef = useRef<Record<string, ScanRegistration>>({});
   const busyRef = useRef(false);
+  // Refs lues par handleCode (mémoïsé) pour ne jamais écrire avec une saison/date périmée
+  const saisonRef = useRef("");
+  const jourRef = useRef(todayStr());
+  // Badges déjà marqués présents aujourd'hui (accès autorisé) -> heure du premier passage
+  const presentsRef = useRef<Map<string, string>>(new Map());
 
-  // ---------- Chargement des données (une seule fois) ----------
+  // ---------- Feuille de présence du jour (source : la base) ----------
+  const loadPresencesJour = useCallback(async () => {
+    const saisonCourante = saisonRef.current;
+    const day = todayStr();
+    if (!saisonCourante) return;
+
+    const { data, error } = await supabase
+      .from("academy_presences")
+      .select("badge_code, scanned_at, statut_abonnement, autorise")
+      .eq("date_presence", day)
+      .eq("saison", saisonCourante)
+      .order("scanned_at", { ascending: false });
+    if (error) { console.error(error); return; }
+
+    const nouveauJour = day !== jourRef.current;
+    jourRef.current = day;
+    setJour(day);
+
+    const presents = nouveauJour ? new Map<string, string>() : new Map(presentsRef.current);
+    const liste: PresenceJour[] = (data || []).map(p => {
+      const reg = indexRef.current[p.badge_code];
+      const heure = heureDe(p.scanned_at);
+      if (p.autorise && !presents.has(p.badge_code)) presents.set(p.badge_code, heure);
+      return {
+        badge_code: p.badge_code,
+        nom: reg ? `${reg.prenom} ${reg.nom}` : p.badge_code,
+        heure,
+        statut: p.statut_abonnement as MonthStatus | null,
+        autorise: p.autorise,
+      };
+    });
+    presentsRef.current = presents;
+    setJournal(liste);
+  }, []);
+
+  // ---------- Chargement des données ----------
   const loadData = useCallback(async () => {
     setLoadingData(true);
     const courante = await fetchSaisonCourante();
+    saisonRef.current = courante;
     setSaison(courante);
 
     const { data: tarifData } = await supabase.from("settings").select("value").eq("key", "academy_tarifs").maybeSingle();
@@ -91,8 +156,9 @@ export default function ScannerView() {
     list.forEach(r => { if (r.badge_code) index[r.badge_code] = r; });
     indexRef.current = index;
     setRegistrations(list);
+    await loadPresencesJour();
     setLoadingData(false);
-  }, []);
+  }, [loadPresencesJour]);
 
   useEffect(() => {
     loadData();
@@ -100,6 +166,14 @@ export default function ScannerView() {
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rafraîchit la feuille du jour (scans faits depuis un autre appareil) et la remet à zéro à minuit
+  useEffect(() => {
+    const id = setInterval(() => { loadPresencesJour(); }, 60000);
+    const onFocus = () => { loadPresencesJour(); };
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(id); window.removeEventListener("focus", onFocus); };
+  }, [loadPresencesJour]);
 
   // ---------- Son ----------
   function beep(frequency: number, duration = 0.12) {
@@ -215,6 +289,25 @@ export default function ScannerView() {
       return;
     }
 
+    // Passage de minuit sans rechargement : la feuille du jour repart de zéro
+    if (todayStr() !== jourRef.current) {
+      jourRef.current = todayStr();
+      presentsRef.current = new Map();
+      setJour(jourRef.current);
+      setJournal([]);
+      loadPresencesJour();
+    }
+
+    const dejaHeure = presentsRef.current.get(code);
+    if (dejaHeure) {
+      beep(660, 0.08);
+      navigator.vibrate?.(40);
+      busyRef.current = true;
+      setResult({ kind: "deja_scanne", reg, heure: dejaHeure });
+      scheduleDismiss();
+      return;
+    }
+
     const statut = getMonthStatus(reg, currentMonthStr(), tarifMensuel || undefined);
     const tone = STATUT_UI[statut].tone;
 
@@ -232,7 +325,7 @@ export default function ScannerView() {
       scheduleDismiss();
     }
     chargerDerniereVenue(code);
-  }, [tarifMensuel]);
+  }, [tarifMensuel, loadPresencesJour]);
 
   async function resolveInconnu(code: string) {
     const { data } = await supabase
@@ -251,6 +344,7 @@ export default function ScannerView() {
       .from("academy_presences")
       .select("date_presence")
       .eq("badge_code", code)
+      .lt("date_presence", todayStr())
       .order("date_presence", { ascending: false })
       .limit(1);
     const derniere = data && data.length > 0 ? data[0].date_presence : null;
@@ -258,22 +352,26 @@ export default function ScannerView() {
   }
 
   function enregistrerPresence(reg: ScanRegistration, statut: MonthStatus, autorise: boolean) {
-    const heure = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-    setJournal(prev => [{ nom: `${reg.prenom} ${reg.nom}`, heure, statut, autorise }, ...prev].slice(0, 30));
+    const heure = heureDe(new Date());
+    const badge = reg.badge_code as string;
+    const day = jourRef.current;
+    if (autorise) presentsRef.current.set(badge, heure);
+    setJournal(prev => [{ badge_code: badge, nom: `${reg.prenom} ${reg.nom}`, heure, statut, autorise }, ...prev]);
     // Écriture optimiste : on n'attend pas le réseau pour libérer le scanner,
     // mais un échec (ex : session expirée) est signalé et reste rejouable via "Réessayer".
     supabase.from("academy_presences").insert({
       registration_id: reg.id,
-      badge_code: reg.badge_code,
-      saison,
+      badge_code: badge,
+      saison: saisonRef.current,
+      date_presence: day,
       statut_abonnement: statut,
       autorise,
       scanned_by: userEmailRef.current,
     }).then(({ error }) => {
-      if (error) {
+      if (error && !isDoublon(error)) {
         console.error("Présence non enregistrée", error);
         beep(180, 0.4);
-        setSyncErrors(prev => [...prev, { nom: `${reg.prenom} ${reg.nom}`, heure, reg, statut, autorise }]);
+        setSyncErrors(prev => [...prev, { nom: `${reg.prenom} ${reg.nom}`, heure, reg, statut, autorise, jour: day }]);
       }
     });
   }
@@ -287,12 +385,13 @@ export default function ScannerView() {
       const { error } = await supabase.from("academy_presences").insert({
         registration_id: item.reg.id,
         badge_code: item.reg.badge_code,
-        saison,
+        saison: saisonRef.current,
+        date_presence: item.jour,
         statut_abonnement: item.statut,
         autorise: item.autorise,
         scanned_by: userEmailRef.current,
       });
-      if (error) {
+      if (error && !isDoublon(error)) {
         console.error("Présence toujours non enregistrée", error);
         setSyncErrors(prev => [...prev, item]);
       }
@@ -328,7 +427,11 @@ export default function ScannerView() {
   }
 
   // ---------- Rendu ----------
-  const tone = result?.kind === "ok" ? STATUT_UI[result.statut].tone : result ? "bad" : "ok";
+  const tone = result?.kind === "ok" ? STATUT_UI[result.statut].tone
+    : result?.kind === "deja_scanne" ? "ok"
+    : result ? "bad" : "ok";
+  const nbPresents = presentsCount(journal);
+  const dateLabel = new Date(jour + "T00:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -339,24 +442,14 @@ export default function ScannerView() {
             {loadingData ? "Chargement des inscrits..." : `${registrations.length} enfant(s) — saison ${saison}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {journal.length > 0 && (
-            <button
-              onClick={() => { stopCamera(); setScanning(false); setShowSummary(true); }}
-              className="flex items-center gap-2 rounded-sm bg-white/5 px-3 py-2.5 text-xs font-bold uppercase tracking-wide text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <StopCircle className="h-4 w-4" /> Terminer la session
-            </button>
-          )}
-          <button
-            onClick={loadData}
-            disabled={loadingData}
-            title="Recharger la liste des inscrits"
-            className="rounded-sm bg-white/5 p-2.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <RefreshCw className={cn("h-4 w-4", loadingData && "animate-spin")} />
-          </button>
-        </div>
+        <button
+          onClick={loadData}
+          disabled={loadingData}
+          title="Recharger la liste des inscrits"
+          className="rounded-sm bg-white/5 p-2.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <RefreshCw className={cn("h-4 w-4", loadingData && "animate-spin")} />
+        </button>
       </div>
 
       {/* Alerte de synchronisation : des présences scannées n'ont pas pu être enregistrées */}
@@ -441,13 +534,18 @@ export default function ScannerView() {
         )}
       </div>
 
-      {/* Journal du jour */}
-      {journal.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-white/5">
-          <p className="border-b border-white/5 bg-white/[0.02] px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-white/40">
-            Passages de cette session ({journal.length})
+      {/* Feuille de présence du jour (repart de zéro chaque jour, l'historique reste en base) */}
+      <div className="overflow-hidden rounded-lg border border-white/5">
+        <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] px-4 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">
+            Présents aujourd&apos;hui <span className="capitalize text-white/25">— {dateLabel}</span>
           </p>
-          <div className="max-h-56 overflow-y-auto">
+          <span className="font-[var(--font-heading)] text-lg font-bold text-fiver-green">{nbPresents}</span>
+        </div>
+        {journal.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-white/30">Aucun enfant scanné aujourd&apos;hui.</p>
+        ) : (
+          <div className="max-h-72 overflow-y-auto">
             {journal.map((j, i) => (
               <div key={i} className="flex items-center gap-3 border-b border-white/5 bg-white/[0.01] px-4 py-2.5">
                 <span className="font-mono text-xs text-white/30">{j.heure}</span>
@@ -459,8 +557,8 @@ export default function ScannerView() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ====== RÉSULTAT PLEIN ÉCRAN ====== */}
       {result && (
@@ -475,6 +573,15 @@ export default function ScannerView() {
               <AlertTriangle className="mb-4 h-16 w-16 text-red-400" />
               <p className="font-[var(--font-heading)] text-3xl font-bold uppercase text-white">Carte inconnue</p>
               <p className="mt-2 font-mono text-sm text-white/50">{result.code}</p>
+            </>
+          )}
+
+          {result.kind === "deja_scanne" && (
+            <>
+              <CheckCheck className="mb-4 h-16 w-16 text-fiver-green" />
+              <p className="font-[var(--font-heading)] text-3xl font-bold uppercase text-white">Déjà présent</p>
+              <p className="mt-2 text-lg text-white/80">{result.reg.prenom} {result.reg.nom}</p>
+              <p className="mt-1 text-sm text-white/50">Déjà scanné aujourd&apos;hui à {result.heure}</p>
             </>
           )}
 
@@ -546,62 +653,6 @@ export default function ScannerView() {
               Suivant
             </button>
           )}
-        </div>
-      )}
-
-      {/* ====== RÉCAPITULATIF DE FIN DE SESSION ====== */}
-      {showSummary && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80" onClick={() => setShowSummary(false)}>
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center gap-2 border-b border-white/5 p-6 text-center">
-              <PartyPopper className="h-10 w-10 text-fiver-green" />
-              <h3 className="font-[var(--font-heading)] text-xl font-bold uppercase text-white">Session terminée</h3>
-              <p className="text-sm text-white/50">
-                <strong className="text-fiver-green">{journal.length}</strong> passage{journal.length > 1 ? "s" : ""} enregistré{journal.length > 1 ? "s" : ""} — c&apos;est bon, vous pouvez fermer.
-              </p>
-            </div>
-
-            {syncErrors.length > 0 && (
-              <div className="mx-5 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-red-500/30 bg-red-500/10 px-4 py-3">
-                <div className="flex items-center gap-2 text-xs text-red-300">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  {syncErrors.length} non synchronisée(s)
-                </div>
-                <button
-                  onClick={retrySync}
-                  disabled={retrying}
-                  className="flex items-center gap-2 rounded-sm bg-red-500/20 px-3 py-1.5 text-xs font-bold text-red-200 hover:bg-red-500/30 disabled:opacity-50"
-                >
-                  {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Réessayer
-                </button>
-              </div>
-            )}
-
-            <div className="max-h-64 overflow-y-auto p-5">
-              {journal.length === 0 ? (
-                <p className="py-6 text-center text-sm text-white/30">Aucun passage cette session.</p>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  {journal.map((j, i) => (
-                    <div key={i} className="flex items-center gap-3 rounded-sm bg-white/[0.02] px-3 py-2">
-                      <span className="font-mono text-xs text-white/30">{j.heure}</span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-white/80">{j.nom}</span>
-                      {!j.autorise && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-red-400">Refusé</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-white/5 p-5">
-              <button
-                onClick={() => setShowSummary(false)}
-                className="w-full rounded-xl bg-fiver-green py-3 text-sm font-black uppercase tracking-wide text-fiver-black"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
