@@ -177,18 +177,9 @@ ${cartes.join("\n")}
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
-        <div className="mb-2 flex items-center gap-2">
-          <CreditCard className="h-4 w-4 text-fiver-green" />
-          <h2 className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Cartes de badge QR</h2>
-        </div>
-        <p className="text-xs text-white/40">
-          Format carte bancaire (85,6 × 54 mm), 10 par page A4. À imprimer, plastifier et remettre à chaque enfant avec un cordon.
-        </p>
-        <p className="mt-2 text-xs text-white/40">
-          La carte ne porte que des informations permanentes (nom, date de naissance, photo, code) : ni catégorie, ni discipline, ni saison.
-          Elle reste donc valable année après année — la catégorie et l&apos;état de l&apos;abonnement s&apos;affichent à l&apos;écran au moment du scan.
-        </p>
+      <div className="flex items-center gap-2">
+        <CreditCard className="h-4 w-4 text-fiver-green" />
+        <h2 className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">Cartes de badge QR</h2>
       </div>
 
       {message && (

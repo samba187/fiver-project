@@ -196,6 +196,25 @@ export function TabDashboard({
         )}
       </section>
 
+      {/* Total de la saison : mensualités + frais d'inscription */}
+      {periode === "saison" && (
+        <section className="rounded-lg border border-fiver-green/20 bg-fiver-green/5 p-5">
+          <h3 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-fiver-green">💰 Total saison {saison}</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-md bg-black/20 p-3">
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Total encaissé</p>
+              <p className="mt-1 text-2xl font-bold text-fiver-green">{mru(stats.recu + stats.avance + stats.fraisEncaisse)}</p>
+              <p className="mt-1 text-[11px] text-white/40">Mensualités {mru(stats.recu + stats.avance)} + frais {mru(stats.fraisEncaisse)}</p>
+            </div>
+            <div className="rounded-md bg-black/20 p-3">
+              <p className="text-[10px] uppercase tracking-wide text-white/40">Total reste à encaisser</p>
+              <p className="mt-1 text-2xl font-bold text-red-400">{mru(stats.reste + stats.fraisReste)}</p>
+              <p className="mt-1 text-[11px] text-white/40">Mensualités {mru(stats.reste)} + frais {mru(stats.fraisReste)}</p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 2. Mensualités */}
       <section className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
         <h3 className="font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">💰 Mensualités — {libellePeriode}</h3>
