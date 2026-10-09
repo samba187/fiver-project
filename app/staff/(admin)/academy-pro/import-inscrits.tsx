@@ -73,7 +73,7 @@ export function ImportInscritsModal({
   const affiches = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return liste;
-    return liste.filter(r => `${r.prenom} ${r.nom} ${r.nom_pere || ""} ${r.badge_code || ""}`.toLowerCase().includes(q));
+    return liste.filter(r => (`${r.prenom} ${r.nom} ${r.nom_pere || ""} ${r.badge_code || ""}`.toLowerCase().includes(q) || (r.telephone_parent || "").replace(/\D/g, "").includes(q.replace(/\D/g, "") || "§")));
   }, [liste, search]);
 
   function toggle(id: number) {
@@ -158,7 +158,7 @@ export function ImportInscritsModal({
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Rechercher..."
+              placeholder="Nom ou téléphone..."
               className="w-full rounded-sm border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none"
             />
           </div>
@@ -194,7 +194,10 @@ export function ImportInscritsModal({
                 {importe ? <CheckSquare className="h-4 w-4 shrink-0 text-white/30" />
                   : checked ? <CheckSquare className="h-4 w-4 shrink-0 text-fiver-green" />
                   : <Square className="h-4 w-4 shrink-0 text-white/20" />}
-                <span className="min-w-0 flex-1 truncate text-sm text-white/80">{r.prenom} {r.nom}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-white/80">{r.prenom} {r.nom}</span>
+                  <span className="block truncate font-mono text-[11px] text-white/40">{r.telephone_parent || "Pas de téléphone"}</span>
+                </span>
                 {importe ? (
                   <span className="text-[10px] font-bold uppercase text-white/40">Déjà importé</span>
                 ) : cat && (

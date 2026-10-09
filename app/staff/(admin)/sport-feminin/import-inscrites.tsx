@@ -134,7 +134,10 @@ export function ImportInscritesModal({
                   deja ? "opacity-40" : checked ? "bg-[#c81054]/10" : "hover:bg-white/5")}
               >
                 {deja || checked ? <CheckSquare className={cn("h-4 w-4 shrink-0", deja ? "text-white/30" : "text-[#c81054]")} /> : <Square className="h-4 w-4 shrink-0 text-white/20" />}
-                <span className="min-w-0 flex-1 truncate text-sm text-white/80">{i.prenom} {i.nom}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-white/80">{i.prenom} {i.nom}</span>
+                  <span className="block truncate font-mono text-[11px] text-white/40">{i.telephone || "Pas de téléphone"}</span>
+                </span>
                 {deja && <span className="text-[10px] font-bold uppercase text-white/40">Déjà importée</span>}
               </button>
             );
