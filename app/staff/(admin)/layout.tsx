@@ -21,6 +21,9 @@ import {
   Truck,
   Wallet,
   ScanLine,
+  UserRound,
+  CalendarDays,
+  Shirt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -31,6 +34,9 @@ const SIDEBAR_LINKS = [
   { href: "/staff/caisse", label: "Caisse", icon: Wallet },
   { href: "/staff/reservations", label: "Réservations", icon: CalendarCheck },
   { href: "/staff/academy-pro", label: "Academy & Loisirs", icon: ClipboardList },
+  { href: "/staff/espace-parents", label: "Espace Parents", icon: UserRound },
+  { href: "/staff/seances", label: "Séances", icon: CalendarDays },
+  { href: "/staff/joueurs", label: "Joueurs", icon: Shirt },
   { href: "/staff/contacts", label: "Messages", icon: MessageCircle },
   { href: "/staff/sport-feminin", label: "Sport Féminin", icon: Heart },
   { href: "/staff/transport", label: "Transport", icon: Truck },

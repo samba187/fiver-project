@@ -43,6 +43,7 @@ export interface Registration {
   inscription_fin_de_mois: boolean;
   deja_inscrit: boolean;
   autorisation_sortie: boolean | null;
+  autorisation_photos: boolean | null;
   saison: string | null;
   badge_code: string | null;
   academy_payments_history?: any[];
@@ -63,6 +64,7 @@ export interface Tarifs {
   tarifCombo: number;
   fraisInscription: number;
   fraisInscriptionAncien: number;
+  tarifsCategorie?: Record<string, number>;
   jourLimitePaiement: number;
   seuilFinDeMois: number;
 }

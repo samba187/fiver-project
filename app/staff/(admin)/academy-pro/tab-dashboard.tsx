@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ACADEMY_CATEGORIES, debutSaison, currentMonthStr } from "@/lib/academy";
+import { ACADEMY_CATEGORIES, debutSaison, currentMonthStr, mensualiteFiche } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 
 type Paiement = { mois_concerne: string; montant: number; moyen_paiement?: string | null; date_paiement?: string };
@@ -29,10 +29,6 @@ function estDu(r: Registration, month: string) {
   return true;
 }
 
-function mensualite(r: Registration, tarifFoot: number) {
-  const base = r.tarif_football > 0 ? r.tarif_football : r.tarif_total > 0 ? r.tarif_total : tarifFoot;
-  return base + (r.tarif_loisirs || 0);
-}
 
 function recuPourMois(r: Registration, month: string) {
   return historique(r)
@@ -82,7 +78,7 @@ export function TabDashboard({
         const paye = recuPourMois(r, month);
         recu += paye;
         if (!estDu(r, month)) return;
-        const m = mensualite(r, tarifs.tarifFoot);
+        const m = mensualiteFiche(r, tarifs);
         du += m;
         reste += Math.max(0, m - paye);
         if (paye >= m) aJour++;

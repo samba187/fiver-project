@@ -6,7 +6,7 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge, debutSaison } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge, debutSaison, mensualiteFiche } from "@/lib/academy";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
 import type { Registration, Tarifs } from "./page";
@@ -89,7 +89,7 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   tarif_total: 0, montant_paye: 0, statut_paiement: "en_attente", date_paiement: null,
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
-  deja_inscrit: false, autorisation_sortie: null, saison: null, badge_code: null,
+  deja_inscrit: false, autorisation_sortie: null, autorisation_photos: true, saison: null, badge_code: null,
 });
 
 type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code" | "photo_url" | "autorisation_sortie">;
@@ -134,7 +134,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     return registrations.filter(r => {
       if (filterCat !== "all" && r.categorie_foot !== filterCat) return false;
       if (filterStatus !== "all") {
-        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
+        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs));
         if (filterStatus === "ok" && s.status !== "ok") return false;
         if (filterStatus === "retard" && s.status !== "retard") return false;
         if (filterStatus === "attente" && s.status !== "attente" && s.status !== "partiel") return false;
@@ -154,16 +154,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
         const cat = categorieParAge(calcAge(next.date_naissance), next.sexe === "F");
         if (cat) next.categorie_foot = cat;
       }
-      if (updates.football !== undefined || updates.centre_loisirs !== undefined) {
-        if (next.football && next.centre_loisirs) {
-          next.tarif_total = tarifs.tarifCombo;
-        } else if (next.football) {
-          next.tarif_total = tarifs.tarifFoot;
-        } else if (next.centre_loisirs) {
-          next.tarif_total = tarifs.tarifLoisirs;
-        } else {
-          next.tarif_total = 0;
-        }
+      if (updates.football !== undefined || updates.centre_loisirs !== undefined || next.categorie_foot !== prev.categorie_foot) {
+        next.tarif_total = mensualiteFiche(next, tarifs);
       }
       if (updates.deja_inscrit !== undefined) {
         next.frais_inscription = updates.deja_inscrit ? tarifs.fraisInscriptionAncien : tarifs.fraisInscription;
@@ -192,7 +184,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     setEditingId(null);
     const f = emptyForm();
     f.frais_inscription = tarifs.fraisInscription;
-    f.tarif_total = tarifs.tarifFoot;
+    f.tarif_total = mensualiteFiche(f, tarifs);
     f.badge_code = generateBadgeCode();
     const today = new Date().getDate();
     if (today >= tarifs.seuilFinDeMois) f.inscription_fin_de_mois = true;
@@ -206,10 +198,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     const { id, created_at, academy_payments_history, ...rest } = r as any;
 
     // Force recalculation of tarif based on current active parameters, discarding old imported DB values
-    if (rest.football && rest.centre_loisirs) rest.tarif_total = tarifs.tarifCombo;
-    else if (rest.football) rest.tarif_total = tarifs.tarifFoot;
-    else if (rest.centre_loisirs) rest.tarif_total = tarifs.tarifLoisirs;
-    else rest.tarif_total = 0;
+    rest.tarif_total = mensualiteFiche(rest, tarifs);
 
     setForm(rest);
     setSuggestion(null);
@@ -282,14 +271,14 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
 
   // ====== QUICK PAYMENT LOGIC ======
   function openQuickPayMonth(r: Registration, monthStr: string) {
-    const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
+    const mensualite = mensualiteFiche(r, tarifs);
     const history = r.academy_payments_history || [];
     const totalPaid = history.filter(h => h.mois_concerne === monthStr).reduce((acc, h) => acc + h.montant, 0);
-    const remaining = tarifs.tarifFoot - totalPaid;
+    const remaining = mensualite - totalPaid;
 
     setQuickPayTarget({ type: "month", monthStr });
     setQuickPayPlayer(r);
-    setQuickPayMontant(remaining > 0 ? remaining : tarifs.tarifFoot);
+    setQuickPayMontant(remaining > 0 ? remaining : mensualite);
     setQuickPayMoyen("Cash");
     setQuickPayDate(new Date().toISOString().split("T")[0]);
     setQuickPayOpen(true);
@@ -306,7 +295,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
   }
 
   function openMonthChoice(r: Registration, monthStr: string) {
-    const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
+    const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs));
     // If month is paid or partial, go directly to quick pay modal (existing behavior)
     if (status === "paye" || status === "partiel") {
       openQuickPayMonth(r, monthStr);
@@ -811,7 +800,7 @@ Merci de votre confiance !`;
                       {moisSaison.map(monthStr => {
                         const [annee, mm] = monthStr.split("-");
                         const m = ALL_MONTHS.find(x => x.val === mm) || { val: mm, label: mm };
-                        const status = getMonthStatus(r, monthStr, tarifs.tarifFoot);
+                        const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs));
                         const colors: Record<string, string> = {
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
                           partiel: "bg-amber-500 text-black hover:brightness-110",
@@ -981,7 +970,7 @@ Merci de votre confiance !`;
 
       {/* ====== MONTH CHOICE MODAL (Encaisser vs OFF) ====== */}
       {monthChoiceOpen && monthChoicePlayer && monthChoiceMonth && (() => {
-        const status = getMonthStatus(monthChoicePlayer, monthChoiceMonth, tarifs.tarifFoot);
+        const status = getMonthStatus(monthChoicePlayer, monthChoiceMonth, mensualiteFiche(monthChoicePlayer, tarifs));
         const [y, m] = monthChoiceMonth.split("-");
         const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
         const isOff = status === "off";
@@ -1295,6 +1284,27 @@ Merci de votre confiance !`;
                           type="button"
                           onClick={() => handleFormChange({ autorisation_sortie: opt.val })}
                           className={cn("rounded-lg border p-3 text-sm font-bold transition-colors", form.autorisation_sortie === opt.val ? opt.cls : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20")}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Autorisation photos / vidéos */}
+                  <div>
+                    <h4 className="mb-4 text-xs font-black uppercase tracking-widest text-white/30 flex items-center gap-2"><div className="h-px flex-1 bg-white/10" />PHOTOS / VIDÉOS<div className="h-px flex-1 bg-white/10" /></h4>
+                    <p className="mb-3 text-xs text-white/50">Le parent autorise-t-il les photos de l&apos;enfant dans le cadre des activités ?</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { val: true, label: "Oui", cls: "border-fiver-green bg-fiver-green/10 text-fiver-green" },
+                        { val: false, label: "Non", cls: "border-red-500/60 bg-red-500/10 text-red-300" },
+                      ].map(opt => (
+                        <button
+                          key={String(opt.val)}
+                          type="button"
+                          onClick={() => handleFormChange({ autorisation_photos: opt.val })}
+                          className={cn("rounded-lg border p-3 text-sm font-bold transition-colors", (form.autorisation_photos ?? true) === opt.val ? opt.cls : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/20")}
                         >
                           {opt.label}
                         </button>

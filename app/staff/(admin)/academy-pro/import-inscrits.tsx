@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, X as XIcon, AlertTriangle, Search, Square, CheckSquare, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { categorieParAge, generateBadgeCode } from "@/lib/academy";
+import { categorieParAge, generateBadgeCode, mensualiteFiche } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 
 function ageAujourdhui(dob: string | null) {
@@ -90,9 +90,7 @@ export function ImportInscritsModal({
     setSaving(true);
     setError("");
     const rows = cibles.map(r => {
-      const tarif_total = r.football && r.centre_loisirs ? tarifs.tarifCombo
-        : r.football ? tarifs.tarifFoot
-        : r.centre_loisirs ? tarifs.tarifLoisirs : 0;
+      const tarif_total = mensualiteFiche({ ...r, categorie_foot: nouvelleCategorie(r) || null }, tarifs);
       return {
         nom: r.nom,
         prenom: r.prenom,
@@ -111,6 +109,7 @@ export function ImportInscritsModal({
         photo_url: r.photo_url,
         observations: r.observations,
         autorisation_sortie: r.autorisation_sortie,
+        autorisation_photos: r.autorisation_photos ?? true,
         badge_code: r.badge_code || generateBadgeCode(),
         deja_inscrit: true,
         frais_inscription: tarifs.fraisInscriptionAncien,

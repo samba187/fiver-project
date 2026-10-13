@@ -112,6 +112,104 @@ export function finSaison(saison: string | null | undefined): string | null {
   return m ? `${m[2]}-09` : null;
 }
 
+// ---------- Tarifs ----------
+
+export interface TarifsMensuels {
+  tarifFoot: number;
+  tarifLoisirs: number;
+  tarifCombo: number;
+  /** Mensualité football par catégorie (ex : Baby, filles moins chers). Absent = tarifFoot. */
+  tarifsCategorie?: Record<string, number>;
+}
+
+export interface FicheTarifable {
+  football: boolean;
+  centre_loisirs: boolean;
+  categorie_foot: string | null;
+}
+
+/** Mensualité due par une fiche, selon sa catégorie et ses prestations. */
+export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels): number {
+  const prixCat = r.categorie_foot ? t.tarifsCategorie?.[r.categorie_foot] : undefined;
+  const foot = prixCat && prixCat > 0 ? prixCat : t.tarifFoot;
+  // Le combo garde la même remise que Foot + Loisirs au tarif standard
+  const remiseCombo = Math.max(0, t.tarifFoot + t.tarifLoisirs - t.tarifCombo);
+  if (r.football && r.centre_loisirs) return Math.max(0, foot + t.tarifLoisirs - remiseCombo);
+  if (r.football) return foot;
+  if (r.centre_loisirs) return t.tarifLoisirs;
+  return 0;
+}
+
+// ---------- Planning des entraînements ----------
+
+export interface CreneauPlanning {
+  jours: number[];   // 0 = dimanche … 6 = samedi
+  heure: string;     // "15h45 - 17h00"
+  terrain: string;
+}
+export type PlanningAcademy = Record<string, CreneauPlanning>;
+
+export const JOURS_COURTS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+export const JOURS_LONGS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+
+export const DEFAULT_PLANNING: PlanningAcademy = {
+  "Baby": { jours: [3, 5], heure: "", terrain: "" },
+  "U5/U7": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
+  "U9": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 2" },
+  "U11": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 1" },
+  "U12F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
+  "U13": { jours: [3, 5], heure: "17h45 - 19h00", terrain: "Terrain 1" },
+  "U15": { jours: [3, 5], heure: "17h45 - 19h00", terrain: "Terrain 2" },
+  "U15F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
+  "U17": { jours: [3, 5], heure: "", terrain: "" },
+  "U19": { jours: [3, 5], heure: "", terrain: "" },
+  "Senior": { jours: [3, 5], heure: "", terrain: "" },
+};
+
+export function lirePlanning(valeur: unknown): PlanningAcademy {
+  const base: PlanningAcademy = { ...DEFAULT_PLANNING };
+  if (valeur && typeof valeur === "object") {
+    for (const [cat, c] of Object.entries(valeur as Record<string, Partial<CreneauPlanning>>)) {
+      base[cat] = { jours: Array.isArray(c?.jours) ? c.jours : [], heure: c?.heure || "", terrain: c?.terrain || "" };
+    }
+  }
+  return base;
+}
+
+export async function fetchPlanning(): Promise<PlanningAcademy> {
+  const { data } = await supabase.from("settings").select("value").eq("key", "academy_planning").maybeSingle();
+  try { return lirePlanning(data?.value ? JSON.parse(data.value) : null); } catch { return lirePlanning(null); }
+}
+
+export function dateLocale(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Dates des séances d'une catégorie entre deux dates incluses ("YYYY-MM-DD"). */
+export function seancesEntre(planning: PlanningAcademy, categorie: string | null, debut: string, fin: string): string[] {
+  const jours = (categorie && planning[categorie]?.jours) || [];
+  if (jours.length === 0) return [];
+  const out: string[] = [];
+  const d = new Date(debut + "T00:00:00");
+  const f = new Date(fin + "T00:00:00");
+  while (d <= f && out.length < 400) {
+    if (jours.includes(d.getDay())) out.push(dateLocale(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+export function decalerJours(date: string, n: number) {
+  const d = new Date(date + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return dateLocale(d);
+}
+
+/** 8 derniers chiffres d'un numéro (même règle que la fonction SQL tel8). */
+export function tel8(tel: string | null | undefined) {
+  return (tel || "").replace(/\D/g, "").slice(-8);
+}
+
 /** "2025-2026" -> "2026-2027" */
 export function suggestNextSaison(current: string): string {
   const match = current.match(/^(\d{4})-(\d{4})$/);

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { Menu, X, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
@@ -49,6 +49,10 @@ export function Navigation() {
         </ul>
 
         <div className="hidden items-center gap-3 lg:flex">
+          <Link href="/espace-parents"
+            className="flex items-center gap-1.5 rounded-sm border border-fiver-green/50 px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-green transition-colors hover:bg-fiver-green/10">
+            <UserRound className="h-4 w-4" /> Espace Parents
+          </Link>
           <Link href="/#booking"
             className="rounded-sm bg-fiver-green px-5 py-2.5 text-sm font-semibold uppercase tracking-wide text-fiver-black transition-opacity hover:opacity-90">
             Reserver
@@ -86,6 +90,10 @@ export function Navigation() {
               </li>
             ))}
             <li className="mt-4 flex flex-col gap-2">
+              <Link href="/espace-parents" onClick={() => setMobileOpen(false)}
+                className="flex items-center justify-center gap-2 rounded-sm border border-fiver-green/50 py-3 text-center text-sm font-semibold uppercase tracking-wide text-fiver-green">
+                <UserRound className="h-4 w-4" /> Espace Parents
+              </Link>
               <Link href="/#booking" onClick={() => setMobileOpen(false)}
                 className="block rounded-sm bg-fiver-green py-3 text-center text-sm font-semibold uppercase tracking-wide text-fiver-black">
                 Reserver un terrain

@@ -12,12 +12,16 @@ import {
   X,
   Wallet,
   ScanLine,
+  Shirt,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 
 const SIDEBAR_LINKS = [
   { href: "/staff/gestion/accueil", label: "Accueil / Scan", icon: ScanLine },
+  { href: "/staff/gestion/seances", label: "Séances", icon: ClipboardCheck },
+  { href: "/staff/gestion/joueurs", label: "Joueurs", icon: Shirt },
   { href: "/staff/gestion/caisse", label: "Caisse", icon: Wallet },
   { href: "/staff/gestion/reservations", label: "Réservations", icon: CalendarCheck },
   { href: "/staff/gestion/calendrier", label: "Calendrier", icon: CalendarDays },

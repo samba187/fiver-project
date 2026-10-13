@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import type { Registration, Tarifs } from "./page";
 
 import { getStatutMoisEnCours } from "./tab-inscriptions";
+import { mensualiteFiche } from "@/lib/academy";
 
 const inputClass = "w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green";
 
@@ -70,12 +71,12 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
         // Skip fin de mois inscriptions in their first month
         if (r.inscription_fin_de_mois && r.created_at && new Date(r.created_at).getMonth() === new Date().getMonth()) return false;
         // Rien à réclamer : mois offert, ou saison de la fiche pas encore commencée
-        if (getStatutMoisEnCours(r, tarifs.jourLimitePaiement, tarifs.tarifFoot).status === "offert") return false;
+        if (getStatutMoisEnCours(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs)).status === "offert") return false;
         return true;
       })
-      .filter(r => filter === "all" || getTypeRappel(r, tarifs.jourLimitePaiement, tarifs.tarifFoot).type === filter)
+      .filter(r => filter === "all" || getTypeRappel(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs)).type === filter)
       .filter(r => !search || (r.nom + " " + r.prenom).toLowerCase().includes(search.toLowerCase()));
-  }, [registrations, filter, search, tarifs.jourLimitePaiement, tarifs.tarifFoot]);
+  }, [registrations, filter, search, tarifs]);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:max-h-[calc(100vh-250px)]">
@@ -157,8 +158,8 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
           {filtered.length === 0 ? (
             <div className="flex items-center justify-center h-full text-white/30 text-sm italic">Aucun message pour ces critères.</div>
           ) : filtered.map(r => {
-            const info = getTypeRappel(r, tarifs.jourLimitePaiement, tarifs.tarifFoot);
-            const msg = generateMessage(r, templates, tarifs.jourLimitePaiement, tarifs.tarifFoot);
+            const info = getTypeRappel(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs));
+            const msg = generateMessage(r, templates, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs));
             const phone = formatPhone(r.telephone_parent);
             const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
             return (

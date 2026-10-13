@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, type MonthStatus } from "@/lib/academy";
+import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, mensualiteFiche, type MonthStatus, type TarifsMensuels } from "@/lib/academy";
 
 interface ScanRegistration {
   id: number;
@@ -65,7 +65,8 @@ const AUTO_DISMISS_MS = 2600;
 
 export default function ScannerView() {
   const [saison, setSaison] = useState("");
-  const [tarifMensuel, setTarifMensuel] = useState(0);
+  // Tarifs Academy (mensualité par catégorie) pour juger si le mois est payé
+  const tarifsRef = useRef<TarifsMensuels>({ tarifFoot: 0, tarifLoisirs: 0, tarifCombo: 0 });
   const [registrations, setRegistrations] = useState<ScanRegistration[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -148,7 +149,7 @@ export default function ScannerView() {
     if (tarifData?.value) {
       try {
         const t = JSON.parse(tarifData.value);
-        setTarifMensuel(t.tarifFoot || 0);
+        tarifsRef.current = { tarifFoot: t.tarifFoot || 0, tarifLoisirs: t.tarifLoisirs || 0, tarifCombo: t.tarifCombo || 0, tarifsCategorie: t.tarifsCategorie || {} };
         if (t.jourLimitePaiement) jourLimiteRef.current = t.jourLimitePaiement;
       } catch {}
     }
@@ -323,7 +324,7 @@ export default function ScannerView() {
     // Saison lancée en avance (ex : le 30 septembre) : rien à payer avant son premier mois
     const debut = debutSaison(saisonRef.current);
     const avantSaison = !!debut && currentMonthStr() < debut;
-    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), tarifMensuel || undefined);
+    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), mensualiteFiche(reg, tarifsRef.current) || undefined);
     const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
     const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
 
@@ -341,7 +342,7 @@ export default function ScannerView() {
       scheduleDismiss();
     }
     chargerDerniereVenue(code);
-  }, [tarifMensuel, loadPresencesJour]);
+  }, [loadPresencesJour]);
 
   async function resolveInconnu(code: string) {
     const { data } = await supabase
