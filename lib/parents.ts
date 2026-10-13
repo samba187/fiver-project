@@ -57,7 +57,7 @@ const MESSAGES: Record<string, string> = {
   MOT_DE_PASSE_COURT: "Le mot de passe doit contenir au moins 6 caractères.",
   COMPTE_EXISTE: "Un compte existe déjà pour ce numéro. Connectez-vous.",
   CODE_INCORRECT: "Numéro ou code joueur incorrect. Le code est imprimé sur la carte de votre enfant.",
-  IDENTIFIANTS: "Numéro ou mot de passe incorrect.",
+  IDENTIFIANTS: "Numéro ou mot de passe incorrect. Première visite ? Créez d'abord votre compte avec l'onglet « Créer mon compte ».",
   BLOQUE: "Trop d'essais. Réessayez dans 15 minutes.",
   COMPTE_DESACTIVE: "Ce compte a été désactivé. Contactez l'académie.",
   ENFANT_INCONNU: "Enfant introuvable.",
