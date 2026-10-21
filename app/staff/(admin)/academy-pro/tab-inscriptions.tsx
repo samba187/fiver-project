@@ -7,8 +7,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge, debutSaison, mensualiteFiche } from "@/lib/academy";
-import * as htmlToImage from "html-to-image";
-import jsPDF from "jspdf";
+import { RecuAcademy, lignesRecu, libelleLigneMois, recuEnPdf } from "@/components/academy/recu-academy";
 import type { Registration, Tarifs } from "./page";
 import { ImportInscritsModal } from "./import-inscrits";
 
@@ -376,13 +375,10 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     // Auto-redirect to invoice/WhatsApp for monthly payments
     if (quickPayTarget.type === "month" && quickPayTarget.monthStr) {
       const monthStr = quickPayTarget.monthStr;
-      const [y, m] = monthStr.split("-");
-      const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
-
       setInvoicePlayer(quickPayPlayer);
       setInvoiceItems([{
         id: monthStr,
-        label: `Mois : ${monthLabel} ${y}`,
+        label: libelleLigneMois(monthStr),
         amount: quickPayMontant,
         selected: true,
         isFrais: false,
@@ -428,55 +424,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
   // ====== INVOICE LOGIC ======
   function openInvoiceModal(r: Registration) {
     setInvoicePlayer(r);
-    const history = r.academy_payments_history || [];
-    const items: typeof invoiceItems = [];
-
-    // Frais
-    if (r.frais_inscription_paye) {
-      const fraisP = history.find(h => h.mois_concerne === "FRAIS");
-      items.push({
-        id: "FRAIS",
-        label: "Frais d'inscription",
-        amount: r.frais_inscription,
-        selected: false,
-        isFrais: true,
-        method: fraisP?.moyen_paiement || "Cash",
-        date: fraisP?.date_paiement || String(r.created_at)
-      });
-    }
-
-    // Group history by month
-    const monthMap = new Map<string, { amount: number, method: string, date: string }>();
-    history.forEach(h => {
-      if (h.mois_concerne !== "FRAIS") {
-        const existing = monthMap.get(h.mois_concerne);
-        if (existing) {
-          existing.amount += h.montant;
-          if (new Date(h.date_paiement) > new Date(existing.date)) {
-            existing.method = h.moyen_paiement || "Cash";
-            existing.date = h.date_paiement;
-          }
-        } else {
-          monthMap.set(h.mois_concerne, { amount: h.montant, method: h.moyen_paiement || "Cash", date: h.date_paiement });
-        }
-      }
-    });
-
-    monthMap.forEach((data, monthStr) => {
-      const [y, m] = monthStr.split("-");
-      const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
-      items.push({
-        id: monthStr,
-        label: `Mois : ${monthLabel} ${y}`,
-        amount: data.amount,
-        selected: false,
-        isFrais: false,
-        method: data.method,
-        date: data.date
-      });
-    });
-
-    setInvoiceItems(items.sort((a, b) => a.id.localeCompare(b.id)));
+    setInvoiceItems(lignesRecu(r).map(l => ({ ...l, selected: false, isFrais: l.id === "FRAIS" })));
     setInvoiceStep("select");
     setInvoiceModalOpen(true);
   }
@@ -485,109 +433,9 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     setInvoiceItems(prev => prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item));
   }
 
-  function formatDateSafely(dateStr: string | null | undefined) {
-    if (!dateStr || dateStr === "null" || dateStr === "undefined") return "Date inconnue";
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? "Date inconnue" : d.toLocaleDateString("fr-FR");
-  }
-
   const renderReceiptContent = () => {
     if (!invoicePlayer) return null;
-    const totalAmount = invoiceItems.filter(i => i.selected).reduce((acc, curr) => acc + curr.amount, 0);
-
-    return (
-      <div style={{ width: "100%", maxWidth: "600px", background: "white", padding: "40px", color: "#1a1a1a", position: "relative", margin: "0 auto", fontFamily: "sans-serif" }}>
-        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", opacity: 0.05, pointerEvents: "none", zIndex: 0 }}>
-          <img src="/images/fiveur-academy-logo.png" alt="Watermark" style={{ width: 320, height: "auto" }} />
-        </div>
-
-        <div style={{ textAlign: "center", marginBottom: 24, position: "relative", zIndex: 10 }}>
-          <img src="/images/fiveur-academy-logo.png" alt="Fiveur Academy" style={{ height: 60, display: "inline-block" }} />
-        </div>
-
-        <div style={{ marginBottom: 24, position: "relative", zIndex: 10 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 900, color: "#2d6a2e", textTransform: "uppercase", margin: 0 }}>FIVEUR ACADEMY</h1>
-          <p style={{ fontSize: 13, color: "#666", margin: "4px 0 0 0" }}>Since 2026 — Nouakchott, Mauritanie</p>
-        </div>
-
-        <div style={{ marginBottom: 20, position: "relative", zIndex: 10 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 12px 0", color: "#111" }}>REÇU DE PAIEMENT</h2>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-            <span><strong>Reçu N° :</strong> REC-{String(invoicePlayer.id).padStart(4, "0")}</span>
-            <span><strong>Date :</strong> {formatDateSafely(new Date().toISOString())}</span>
-          </div>
-        </div>
-
-        <div style={{ background: "#2d6a2e", color: "white", padding: "8px 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16, position: "relative", zIndex: 10 }}>INFORMATIONS DE L'INSCRIT</div>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", zIndex: 10, marginBottom: 32 }}>
-          <div style={{ flex: 1, paddingRight: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
-              <span style={{ color: "#666" }}>Nom et Prénom :</span>
-              <span style={{ fontWeight: 700, textTransform: "uppercase" }}>{invoicePlayer.prenom} {invoicePlayer.nom}</span>
-            </div>
-            {invoicePlayer.date_naissance && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
-                <span style={{ color: "#666" }}>Date de naissance :</span>
-                <span style={{ fontWeight: 700 }}>{formatDateSafely(invoicePlayer.date_naissance)}</span>
-              </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
-              <span style={{ color: "#666" }}>Tél. parent :</span>
-              <span style={{ fontWeight: 700 }}>{invoicePlayer.telephone_parent}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
-              <span style={{ color: "#666" }}>Prestation(s) :</span>
-              <span style={{ fontWeight: 700 }}>
-                {invoicePlayer.football && `⚽ Football Academy${invoicePlayer.categorie_foot ? ` (${invoicePlayer.categorie_foot})` : ''}`}
-                {invoicePlayer.football && invoicePlayer.centre_loisirs && " + "}
-                {invoicePlayer.centre_loisirs && "🎨 Centre Loisirs"}
-              </span>
-            </div>
-          </div>
-          <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: "2px solid #2d6a2e", display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0", flexShrink: 0 }}>
-            {invoicePlayer.photo_url ? (
-              <img src={invoicePlayer.photo_url} alt="Photo" style={{ width: "100%", height: "100%", objectFit: "cover" }} crossOrigin="anonymous" />
-            ) : (
-              <span style={{ color: "#999", fontSize: 24, fontWeight: "bold" }}>{invoicePlayer.prenom.charAt(0)}</span>
-            )}
-          </div>
-        </div>
-
-        <div style={{ background: "#2d6a2e", color: "white", padding: "8px 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16, position: "relative", zIndex: 10 }}>DÉTAIL DES PAIEMENTS</div>
-
-        <div style={{ position: "relative", zIndex: 10, marginBottom: 24 }}>
-          {invoiceItems.filter(i => i.selected).map(item => (
-            <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #eee" }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, color: "#333", fontWeight: 700, marginBottom: 4 }}>{item.label}</div>
-                <div style={{ fontSize: 12, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ background: "#f1f5f9", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>{item.method.toUpperCase()}</span>
-                  <span>•</span>
-                  <span>Réglé le {item.date ? new Date(item.date).toLocaleDateString("fr-FR") : "N/A"}</span>
-                </div>
-              </div>
-              <span style={{ fontWeight: 800, fontSize: 16 }}>{item.amount} MRU</span>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ background: "#f0fdf0", border: "1px solid #2d6a2e", padding: "24px 20px", textAlign: "center", margin: "32px 0 16px 0", borderRadius: 8, position: "relative", zIndex: 10 }}>
-          <p style={{ fontSize: 13, color: "#666", textTransform: "uppercase", fontWeight: 700, letterSpacing: 0.5, margin: "0 0 8px 0" }}>MONTANT TOTAL PAYÉ</p>
-          <p style={{ fontSize: 36, fontWeight: 900, color: "#2d6a2e", margin: 0 }}>{totalAmount} MRU</p>
-          <div style={{ marginTop: 16 }}>
-            <span style={{ display: "inline-block", padding: "6px 20px", borderRadius: 20, fontWeight: 800, fontSize: 14, background: "#dcfce7", color: "#166534" }}>
-              ✅ Paiement Confirmé
-            </span>
-          </div>
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 40, fontSize: 10, color: "#999", borderTop: "1px solid #eee", paddingTop: 16, position: "relative", zIndex: 10 }}>
-          Ce document est généré de manière automatique et électronique, il tient lieu de preuve de paiement certifiée.<br />
-          <strong>Fiveur Academy</strong>
-        </div>
-      </div>
-    );
+    return <RecuAcademy joueur={invoicePlayer} lignes={invoiceItems.filter(i => i.selected)} />;
   };
 
   async function generateMultiInvoice() {
@@ -601,24 +449,8 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
       try {
         if (!receiptRef.current) throw new Error("Receipt ref not found");
 
-        const imgData = await htmlToImage.toPng(receiptRef.current, { pixelRatio: 2, skipAutoScale: true });
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfPageHeight = pdf.internal.pageSize.getHeight();
-        const imgProps = pdf.getImageProperties(imgData);
-        let imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        let imgWidthRender = pdfWidth;
+        const pdf = await recuEnPdf(receiptRef.current);
 
-        if (imgHeight > pdfPageHeight) {
-          const ratio = pdfPageHeight / imgHeight;
-          imgHeight = pdfPageHeight;
-          imgWidthRender = imgWidthRender * ratio;
-        }
-
-        const xOffset = (pdfWidth - imgWidthRender) / 2;
-        pdf.addImage(imgData, "PNG", xOffset, 0, imgWidthRender, imgHeight);
-
-        const pdfBlob = pdf.output("blob");
         const fileName = `recu-academy-${invoicePlayer.id}-${Date.now()}.pdf`;
         pdf.save(fileName);
 
@@ -662,22 +494,7 @@ Merci de votre confiance !`;
     setTimeout(async () => {
       try {
         if (!receiptRef.current) throw new Error("Receipt ref not found");
-        const imgData = await htmlToImage.toPng(receiptRef.current, { pixelRatio: 2, skipAutoScale: true });
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfPageHeight = pdf.internal.pageSize.getHeight();
-        const imgProps = pdf.getImageProperties(imgData);
-        let imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        let imgWidthRender = pdfWidth;
-
-        if (imgHeight > pdfPageHeight) {
-          const ratio = pdfPageHeight / imgHeight;
-          imgHeight = pdfPageHeight;
-          imgWidthRender = imgWidthRender * ratio;
-        }
-
-        const xOffset = (pdfWidth - imgWidthRender) / 2;
-        pdf.addImage(imgData, "PNG", xOffset, 0, imgWidthRender, imgHeight);
+        const pdf = await recuEnPdf(receiptRef.current);
 
         pdf.save(`Facture_Academy_${invoicePlayer?.prenom}_${invoicePlayer?.nom}.pdf`);
       } catch (err) {
@@ -1226,6 +1043,7 @@ Merci de votre confiance !`;
                         <select value={form.categorie_foot || ""} onChange={e => handleFormChange({ categorie_foot: e.target.value || null })} className={cn(inputClass, "font-bold text-fiver-green")}>
                           <option value="" className="bg-[#1a1a1a]">Sélectionner...</option>
                           {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#1a1a1a]">{c}{CATEGORY_AGES[c] ? ` (${CATEGORY_AGES[c]})` : ""}</option>)}
+                          {form.categorie_foot && !CATEGORIES.includes(form.categorie_foot) && <option value={form.categorie_foot} className="bg-[#1a1a1a]">{form.categorie_foot} (ancienne catégorie)</option>}
                         </select>
                       </div>
                       <div>

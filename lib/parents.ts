@@ -8,13 +8,19 @@ import {
 // ---------- Types renvoyés par parent_donnees ----------
 
 export interface PaiementParent { id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; description: string | null; date_paiement: string }
-export interface PreuveParent { id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; statut: "en_attente" | "valide" | "refuse"; motif_refus: string | null; created_at: string }
+export interface LignePreuve { mois: string; montant: number }
+export interface PreuveParent {
+  id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; statut: "en_attente" | "valide" | "refuse";
+  motif_refus: string | null; created_at: string;
+  /** Mois couverts par un même dépôt (paiement de plusieurs mois en une fois) */
+  details?: LignePreuve[] | null;
+}
 export interface EvaluationParent { id: number; date_eval: string; discipline: number | null; comportement: number | null; progression: number | null; commentaire: string | null; auteur: string | null }
 export interface PhotoParent { id: number; url: string; legende: string | null; created_at: string }
 export interface SeanceParent { date: string; reponse: "present" | "absent" | null; presence: "present" | "absent" | null }
 
 export interface EnfantParent {
-  id: number; nom: string; prenom: string; date_naissance: string | null; sexe: string;
+  id: number; nom: string; prenom: string; date_naissance: string | null; sexe: string; telephone_parent: string | null;
   categorie_foot: string | null; football: boolean; centre_loisirs: boolean;
   photo_url: string | null; badge_code: string | null; saison: string; created_at: string;
   tarif_total: number; frais_inscription: number; frais_inscription_paye: boolean; inscription_fin_de_mois: boolean;
@@ -65,6 +71,8 @@ const MESSAGES: Record<string, string> = {
   MOIS_INVALIDE: "Mois invalide.",
   MONTANT_INVALIDE: "Montant invalide.",
   TROP_DE_DEPOTS: "Trop de paiements en attente de validation pour cet enfant.",
+  DEJA_EN_ATTENTE: "Un paiement est déjà en cours de vérification pour l'un de ces mois.",
+  CAPTURE_REQUISE: "Ajoutez la capture d'écran du paiement.",
   DATE_INVALIDE: "Cette séance n'est plus modifiable.",
   MESSAGE_INVALIDE: "Message vide ou trop long.",
   TROP_DE_MESSAGES: "Trop de messages envoyés. Réessayez plus tard.",
@@ -128,8 +136,21 @@ export async function imageEnDataUrl(file: File, maxSize = 1000) {
 
 export type StatutMois = "paye" | "partiel" | "a_payer" | "retard" | "offert" | "a_venir" | "avant_saison" | "en_verification";
 
+/** Lignes d'un dépôt : un ou plusieurs mois (ou les frais), chacun avec son montant. */
+export function lignesPreuve(p: Pick<PreuveParent, "mois_concerne" | "montant" | "details">): LignePreuve[] {
+  return p.details && p.details.length > 0 ? p.details : [{ mois: p.mois_concerne, montant: p.montant }];
+}
+
+export function libelleDepot(p: Pick<PreuveParent, "mois_concerne" | "montant" | "details">) {
+  return lignesPreuve(p).map(l => libelleMois(l.mois)).join(" + ");
+}
+
+function enVerification(e: EnfantParent, mois: string) {
+  return e.preuves.some(p => p.statut === "en_attente" && lignesPreuve(p).some(l => l.mois === mois));
+}
+
 export function fraisEnVerification(e: EnfantParent) {
-  return e.preuves.some(p => p.mois_concerne === "FRAIS" && p.statut === "en_attente");
+  return enVerification(e, "FRAIS");
 }
 
 export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesParent["tarifs"]): { statut: StatutMois; du: number; paye: number } {
@@ -143,7 +164,7 @@ export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesP
   if (s === "off") return { statut: "offert", du, paye };
   if (s === "paye") return { statut: "paye", du, paye };
   // Capture déposée, pas encore validée par l'académie
-  if (e.preuves.some(p => p.mois_concerne === mois && p.statut === "en_attente")) return { statut: "en_verification", du, paye };
+  if (enVerification(e, mois)) return { statut: "en_verification", du, paye };
   if (s === "partiel") return { statut: "partiel", du, paye };
   const actuel = currentMonthStr();
   if (mois > actuel) return { statut: "a_venir", du, paye };
@@ -165,57 +186,5 @@ export function libelleMois(mois: string) {
 }
 
 export const MOYENS_PAIEMENT_PARENT = ["Bankily", "Masrvi", "Sedad", "Bimbank", "Cash", "Autre"];
-
-// ---------- Reçu PDF ----------
-
-export async function telechargerRecu(enfant: EnfantParent, p: PaiementParent) {
-  const { default: jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: "a5" });
-  const vert: [number, number, number] = [0, 166, 110];
-  doc.setFillColor(...vert);
-  doc.rect(0, 0, 148, 26, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("FIVEUR ACADEMY", 12, 13);
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.text("Reçu de paiement — Nouakchott", 12, 20);
-
-  doc.setTextColor(30, 30, 30);
-  doc.setFontSize(10);
-  const lignes: [string, string][] = [
-    ["Reçu N°", `REC-${String(enfant.id).padStart(4, "0")}-${p.id}`],
-    ["Date du paiement", new Date(p.date_paiement).toLocaleDateString("fr-FR")],
-    ["Joueur", `${enfant.prenom} ${enfant.nom}`],
-    ["Catégorie", enfant.categorie_foot || "—"],
-    ["Saison", enfant.saison],
-    ["Objet", p.mois_concerne === "FRAIS" ? "Frais d'inscription" : `Mensualité — ${libelleMois(p.mois_concerne)}`],
-    ["Moyen de paiement", p.moyen_paiement || "—"],
-  ];
-  let y = 40;
-  for (const [k, v] of lignes) {
-    doc.setTextColor(120, 120, 120);
-    doc.text(k, 12, y);
-    doc.setTextColor(30, 30, 30);
-    doc.setFont("helvetica", "bold");
-    doc.text(v, 136, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setDrawColor(230, 230, 230);
-    doc.line(12, y + 3, 136, y + 3);
-    y += 10;
-  }
-  doc.setFillColor(235, 250, 243);
-  doc.roundedRect(12, y + 4, 124, 22, 3, 3, "F");
-  doc.setTextColor(...vert);
-  doc.setFontSize(9);
-  doc.text("MONTANT PAYÉ", 74, y + 12, { align: "center" });
-  doc.setFontSize(18);
-  doc.setFont("helvetica", "bold");
-  doc.text(`${p.montant.toLocaleString("fr-FR").replace(/ | /g, " ")} MRU`, 74, y + 21, { align: "center" });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(150, 150, 150);
-  doc.text("Document généré depuis l'Espace Parents Fiveur Academy.", 74, 200, { align: "center" });
-  doc.save(`recu-${enfant.prenom}-${p.mois_concerne}.pdf`);
-}
+/** Moyens pour lesquels aucune capture d'écran n'est demandée */
+export const MOYENS_SANS_CAPTURE = ["Cash", "Autre"];

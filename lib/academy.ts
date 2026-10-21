@@ -4,20 +4,24 @@ export const SAISON_FALLBACK = "2025-2026";
 
 export type MonthStatus = "paye" | "partiel" | "non_paye" | "off";
 
-export const ACADEMY_CATEGORIES = ["Baby", "U5/U7", "U9", "U11", "U12F", "U13", "U15", "U15F", "U17", "U19", "Senior"];
+export const ACADEMY_CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F", "U17"];
 
 export const CATEGORY_AGES: Record<string, string> = {
-  "Baby": "2-4 ans",
-  "U5/U7": "5-7 ans",
+  "U5": "2-5 ans",
+  "U7": "6-7 ans",
   "U17": "16-17 ans",
-  "U19": "18-19 ans",
-  "Senior": "20 ans et +",
 };
+
+/** Catégories présentes dans une liste d'inscrits, dans l'ordre officiel (+ anciennes catégories éventuelles à la fin). */
+export function categoriesPresentes(cats: (string | null | undefined)[]): string[] {
+  const presentes = new Set(cats.filter((c): c is string => !!c));
+  return [...ACADEMY_CATEGORIES.filter(c => presentes.has(c)), ...[...presentes].filter(c => !ACADEMY_CATEGORIES.includes(c)).sort()];
+}
 
 export function categorieParAge(age: number | null, isGirl: boolean): string {
   if (age === null || age < 2) return "";
-  if (age <= 4) return "Baby";
-  if (age <= 7) return "U5/U7";
+  if (age <= 5) return "U5";
+  if (age <= 7) return "U7";
   if (isGirl && age <= 12) return "U12F";
   if (isGirl && age <= 15) return "U15F";
   if (age <= 9) return "U9";
@@ -25,8 +29,7 @@ export function categorieParAge(age: number | null, isGirl: boolean): string {
   if (age <= 13) return "U13";
   if (age <= 15) return "U15";
   if (age <= 17) return "U17";
-  if (age <= 19) return "U19";
-  return "Senior";
+  return "";
 }
 
 export interface PaymentHistoryEntry {
@@ -118,7 +121,7 @@ export interface TarifsMensuels {
   tarifFoot: number;
   tarifLoisirs: number;
   tarifCombo: number;
-  /** Mensualité football par catégorie (ex : Baby, filles moins chers). Absent = tarifFoot. */
+  /** Mensualité football par catégorie (ex : U5, filles moins chers). Absent = tarifFoot. */
   tarifsCategorie?: Record<string, number>;
 }
 
@@ -153,8 +156,8 @@ export const JOURS_COURTS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 export const JOURS_LONGS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 
 export const DEFAULT_PLANNING: PlanningAcademy = {
-  "Baby": { jours: [3, 5], heure: "", terrain: "" },
-  "U5/U7": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
+  "U5": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
+  "U7": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
   "U9": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 2" },
   "U11": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 1" },
   "U12F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
@@ -162,8 +165,6 @@ export const DEFAULT_PLANNING: PlanningAcademy = {
   "U15": { jours: [3, 5], heure: "17h45 - 19h00", terrain: "Terrain 2" },
   "U15F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
   "U17": { jours: [3, 5], heure: "", terrain: "" },
-  "U19": { jours: [3, 5], heure: "", terrain: "" },
-  "Senior": { jours: [3, 5], heure: "", terrain: "" },
 };
 
 export function lirePlanning(valeur: unknown): PlanningAcademy {

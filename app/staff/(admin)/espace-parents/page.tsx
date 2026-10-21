@@ -6,11 +6,11 @@ import { Loader2, Check, X as XIcon, Send, Trash2, KeyRound, Upload, MessageCirc
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { ACADEMY_CATEGORIES, fetchSaisonCourante, tel8 } from "@/lib/academy";
-import { libelleMois } from "@/lib/parents";
+import { libelleDepot, lignesPreuve, MOYENS_SANS_CAPTURE, type LignePreuve } from "@/lib/parents";
 
 interface Enfant { id: number; nom: string; prenom: string; categorie_foot: string | null; telephone_parent: string | null }
 interface Preuve {
-  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null;
+  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; details: LignePreuve[] | null;
   statut: "en_attente" | "valide" | "refuse"; motif_refus: string | null; traite_par: string | null; created_at: string;
 }
 interface Compte { id: string; telephone: string; nom: string | null; actif: boolean; created_at: string; derniere_connexion: string | null }
@@ -38,7 +38,7 @@ export default function EspaceParentsAdminPage() {
     const saison = await fetchSaisonCourante();
     const [r, p, c, m, a, s] = await Promise.all([
       supabase.from("academy_registrations").select("id, nom, prenom, categorie_foot, telephone_parent").eq("saison", saison),
-      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
+      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, details, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
       supabase.from("parent_comptes").select("*").order("created_at", { ascending: false }),
       supabase.from("parent_messages").select("*").order("created_at", { ascending: true }),
       supabase.from("academy_annonces").select("*").order("created_at", { ascending: false }),
@@ -121,19 +121,24 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
   async function valider(p: Preuve) {
     setEnCours(true);
     try {
-      if (p.mois_concerne === "FRAIS") {
+      // Un dépôt peut couvrir plusieurs mois (et les frais) : une ligne de paiement par mois
+      const lignes = lignesPreuve(p);
+      if (lignes.some(l => l.mois === "FRAIS")) {
         const { error } = await supabase.from("academy_registrations").update({ frais_inscription_paye: true }).eq("id", p.registration_id);
         if (error) throw error;
-      } else {
-        // Un mois marqué OFF redevient un mois payé
-        await supabase.from("academy_payments_history").delete().eq("registration_id", p.registration_id).eq("mois_concerne", p.mois_concerne).eq("moyen_paiement", "OFF");
       }
-      const { error: eH } = await supabase.from("academy_payments_history").insert({
-        registration_id: p.registration_id, mois_concerne: p.mois_concerne, montant: p.montant,
+      const moisPayes = lignes.filter(l => l.mois !== "FRAIS").map(l => l.mois);
+      if (moisPayes.length > 0) {
+        // Un mois marqué OFF redevient un mois payé
+        await supabase.from("academy_payments_history").delete().eq("registration_id", p.registration_id).in("mois_concerne", moisPayes).eq("moyen_paiement", "OFF");
+      }
+      const maintenant = new Date().toISOString();
+      const { error: eH } = await supabase.from("academy_payments_history").insert(lignes.map(l => ({
+        registration_id: p.registration_id, mois_concerne: l.mois, montant: l.montant,
         moyen_paiement: p.moyen_paiement || "Autre",
-        description: p.mois_concerne === "FRAIS" ? "Frais d'inscription (dépôt parent)" : "Mensualité (dépôt parent)",
-        date_paiement: new Date().toISOString(),
-      });
+        description: l.mois === "FRAIS" ? "Frais d'inscription (dépôt parent)" : "Mensualité (dépôt parent)",
+        date_paiement: maintenant,
+      })));
       if (eH) throw eH;
       const { error: eP } = await supabase.from("academy_preuves_paiement").update({ statut: "valide", traite_par: moi, traite_le: new Date().toISOString() }).eq("id", p.id);
       if (eP) throw eP;
@@ -169,7 +174,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
       {liste.map(p => (
         <button key={p.id} onClick={() => ouvrir(p)} className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-4 py-3 text-left hover:bg-white/[0.06]">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-white">{nomEnfant(enfants, p.registration_id)} <span className="font-normal text-white/40">· {libelleMois(p.mois_concerne)}</span></p>
+            <p className="text-sm font-semibold text-white">{nomEnfant(enfants, p.registration_id)} <span className="font-normal text-white/40">· {libelleDepot(p)}</span></p>
             <p className="text-xs text-white/40">{mru(p.montant)} · {p.moyen_paiement} · déposé le {new Date(p.created_at).toLocaleDateString("fr-FR")}</p>
           </div>
           <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold",
@@ -185,7 +190,10 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
             <div className="mb-3 flex items-start justify-between">
               <div>
                 <p className="text-lg font-bold text-white">{nomEnfant(enfants, ouverte.registration_id)}</p>
-                <p className="text-sm text-white/50">{libelleMois(ouverte.mois_concerne)} · {mru(ouverte.montant)} · {ouverte.moyen_paiement}</p>
+                <p className="text-sm text-white/50">{libelleDepot(ouverte)} · {mru(ouverte.montant)} · {ouverte.moyen_paiement}</p>
+                {lignesPreuve(ouverte).length > 1 && (
+                  <p className="mt-1 text-xs text-white/40">{lignesPreuve(ouverte).map(l => `${libelleDepot({ ...ouverte, details: [l] })} : ${mru(l.montant)}`).join(" · ")}</p>
+                )}
                 <p className="text-xs text-white/30">Tél. {enfants.find(e => e.id === ouverte.registration_id)?.telephone_parent || "—"}</p>
               </div>
               <button onClick={() => setOuverte(null)} className="text-white/40 hover:text-white"><XIcon className="h-5 w-5" /></button>
@@ -197,7 +205,13 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={image} alt="Capture du paiement" className="max-h-[55dvh] w-full rounded-lg bg-black object-contain" />
               </a>
-            ) : <p className="text-sm text-white/40">Pas de capture.</p>}
+            ) : (
+              <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-sm text-amber-200">
+                {MOYENS_SANS_CAPTURE.includes(ouverte.moyen_paiement || "")
+                  ? `Paiement déclaré en ${ouverte.moyen_paiement === "Cash" ? "espèces" : "« Autre »"}, sans capture : validez seulement si l'argent a bien été reçu.`
+                  : "Pas de capture."}
+              </p>
+            )}
 
             {ouverte.statut === "en_attente" ? (
               <div className="mt-4 flex flex-col gap-3">

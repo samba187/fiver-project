@@ -5,7 +5,7 @@ import { Loader2, Check, X as XIcon, ScanLine, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import {
-  ACADEMY_CATEGORIES, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
+  categoriesPresentes, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
 } from "@/lib/academy";
 
 interface Joueur { id: number; nom: string; prenom: string; categorie_foot: string | null; photo_url: string | null; autorisation_sortie: boolean | null }
@@ -39,7 +39,7 @@ export function SeancesView() {
       const liste = (data as Joueur[]) || [];
       setJoueurs(liste);
       setPlanning(plan);
-      const cats = ACADEMY_CATEGORIES.filter(c => liste.some(j => j.categorie_foot === c));
+      const cats = categoriesPresentes(liste.map(j => j.categorie_foot));
       setCategorie(cats[0] || "");
       const { data: u } = await supabase.auth.getUser();
       setAuteur(u.user?.email?.split("@")[0] || null);
@@ -47,7 +47,7 @@ export function SeancesView() {
     })();
   }, []);
 
-  const categories = useMemo(() => ACADEMY_CATEGORIES.filter(c => joueurs.some(j => j.categorie_foot === c)), [joueurs]);
+  const categories = useMemo(() => categoriesPresentes(joueurs.map(j => j.categorie_foot)), [joueurs]);
   const dates = useMemo(
     () => (planning && categorie ? seancesEntre(planning, categorie, decalerJours(aujourdhui, -14), decalerJours(aujourdhui, 14)) : []),
     [planning, categorie, aujourdhui]

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import {
-  ACADEMY_CATEGORIES, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
+  categoriesPresentes, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
 } from "@/lib/academy";
 
 interface Joueur {
@@ -53,7 +53,7 @@ export function JoueursView({ admin = false }: { admin?: boolean }) {
     })();
   }, []);
 
-  const categories = useMemo(() => ACADEMY_CATEGORIES.filter(c => joueurs.some(j => j.categorie_foot === c)), [joueurs]);
+  const categories = useMemo(() => categoriesPresentes(joueurs.map(j => j.categorie_foot)), [joueurs]);
   const liste = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     return joueurs.filter(j =>

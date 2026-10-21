@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS academy_preuves_paiement (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_preuves_statut ON academy_preuves_paiement (statut, created_at DESC);
+-- Paiement de plusieurs mois en une fois : [{"mois": "2026-10", "montant": 1000}, ...]
+ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS details JSONB;
 
 -- ---------- Séances : réponse des parents + présence pointée par le coach ----------
 CREATE TABLE IF NOT EXISTS academy_seance_presences (
@@ -285,6 +287,7 @@ BEGIN
     'enfants', coalesce((
       SELECT jsonb_agg(jsonb_build_object(
         'id', r.id, 'nom', r.nom, 'prenom', r.prenom, 'date_naissance', r.date_naissance, 'sexe', r.sexe,
+        'telephone_parent', r.telephone_parent,
         'categorie_foot', r.categorie_foot, 'football', r.football, 'centre_loisirs', r.centre_loisirs,
         'photo_url', r.photo_url, 'badge_code', r.badge_code, 'saison', r.saison, 'created_at', r.created_at,
         'tarif_total', r.tarif_total, 'tarif_football', r.tarif_football, 'tarif_loisirs', r.tarif_loisirs,
@@ -298,7 +301,7 @@ BEGIN
           FROM academy_payments_history h WHERE h.registration_id = r.id), '[]'::jsonb),
         'preuves', coalesce((
           SELECT jsonb_agg(jsonb_build_object('id', p.id, 'mois_concerne', p.mois_concerne, 'montant', p.montant,
-                                              'moyen_paiement', p.moyen_paiement, 'statut', p.statut,
+                                              'moyen_paiement', p.moyen_paiement, 'statut', p.statut, 'details', p.details,
                                               'motif_refus', p.motif_refus, 'created_at', p.created_at) ORDER BY p.created_at DESC)
           FROM academy_preuves_paiement p WHERE p.registration_id = r.id), '[]'::jsonb),
         'evaluations', coalesce((
@@ -357,22 +360,57 @@ BEGIN
   UPDATE academy_registrations SET autorisation_photos = p_autorise WHERE id = r.id;
 END $$;
 
--- Dépôt d'une capture de paiement, à valider par l'admin
-CREATE OR REPLACE FUNCTION parent_deposer_paiement(p_token TEXT, p_registration_id INTEGER, p_mois TEXT, p_montant INTEGER, p_moyen TEXT, p_image TEXT)
+-- Dépôt d'un paiement (un ou plusieurs mois, et/ou les frais), à valider par l'admin.
+-- p_details : [{"mois": "YYYY-MM" | "FRAIS", "montant": 1000}, ...]
+-- Capture obligatoire sauf pour un paiement Cash ou Autre.
+DROP FUNCTION IF EXISTS parent_deposer_paiement(TEXT, INTEGER, TEXT, INTEGER, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION parent_deposer_paiement(p_token TEXT, p_registration_id INTEGER, p_details JSONB, p_moyen TEXT, p_image TEXT DEFAULT NULL)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v parent_comptes := _parent_session(p_token);
   r academy_registrations := _parent_enfant(v, p_registration_id);
+  v_moyen TEXT := left(coalesce(nullif(trim(p_moyen), ''), 'Autre'), 40);
+  v_ligne JSONB;
+  v_montant INTEGER;
+  v_mois TEXT[] := '{}';
+  v_details JSONB := '[]'::jsonb;
+  v_total INTEGER := 0;
 BEGIN
-  IF p_mois IS NULL OR (p_mois !~ '^\d{4}-\d{2}$' AND p_mois <> 'FRAIS') THEN RAISE EXCEPTION 'MOIS_INVALIDE'; END IF;
-  IF p_montant IS NULL OR p_montant <= 0 OR p_montant > 1000000 THEN RAISE EXCEPTION 'MONTANT_INVALIDE'; END IF;
-  IF p_image IS NULL OR p_image NOT LIKE 'data:image/%' OR length(p_image) > 2000000 THEN RAISE EXCEPTION 'IMAGE_INVALIDE'; END IF;
+  IF p_details IS NULL OR jsonb_typeof(p_details) <> 'array' OR jsonb_array_length(p_details) = 0 OR jsonb_array_length(p_details) > 13 THEN
+    RAISE EXCEPTION 'MOIS_INVALIDE';
+  END IF;
+  FOR v_ligne IN SELECT value FROM jsonb_array_elements(p_details) LOOP
+    IF jsonb_typeof(v_ligne->'mois') IS DISTINCT FROM 'string'
+       OR ((v_ligne->>'mois') !~ '^\d{4}-\d{2}$' AND (v_ligne->>'mois') <> 'FRAIS')
+       OR (v_ligne->>'mois') = ANY(v_mois) THEN
+      RAISE EXCEPTION 'MOIS_INVALIDE';
+    END IF;
+    IF jsonb_typeof(v_ligne->'montant') IS DISTINCT FROM 'number' THEN RAISE EXCEPTION 'MONTANT_INVALIDE'; END IF;
+    v_montant := round((v_ligne->>'montant')::numeric);
+    IF v_montant <= 0 OR v_montant > 1000000 THEN RAISE EXCEPTION 'MONTANT_INVALIDE'; END IF;
+    v_mois := v_mois || (v_ligne->>'mois');
+    v_details := v_details || jsonb_build_array(jsonb_build_object('mois', v_ligne->>'mois', 'montant', v_montant));
+    v_total := v_total + v_montant;
+  END LOOP;
+
+  IF p_image IS NULL AND v_moyen NOT IN ('Cash', 'Autre') THEN RAISE EXCEPTION 'CAPTURE_REQUISE'; END IF;
+  IF p_image IS NOT NULL AND (p_image NOT LIKE 'data:image/%' OR length(p_image) > 2000000) THEN RAISE EXCEPTION 'IMAGE_INVALIDE'; END IF;
+
+  -- Un mois déjà en attente de validation ne peut pas être redéposé
+  IF EXISTS (
+    SELECT 1 FROM academy_preuves_paiement p
+    CROSS JOIN LATERAL jsonb_array_elements(coalesce(p.details, jsonb_build_array(jsonb_build_object('mois', p.mois_concerne)))) d
+    WHERE p.registration_id = r.id AND p.statut = 'en_attente' AND d->>'mois' = ANY(v_mois)
+  ) THEN
+    RAISE EXCEPTION 'DEJA_EN_ATTENTE';
+  END IF;
   IF (SELECT count(*) FROM academy_preuves_paiement WHERE registration_id = r.id AND statut = 'en_attente') >= 10 THEN
     RAISE EXCEPTION 'TROP_DE_DEPOTS';
   END IF;
-  INSERT INTO academy_preuves_paiement (registration_id, parent_id, mois_concerne, montant, moyen_paiement, image)
-  VALUES (r.id, v.id, p_mois, p_montant, left(p_moyen, 40), p_image);
+
+  INSERT INTO academy_preuves_paiement (registration_id, parent_id, mois_concerne, montant, moyen_paiement, image, details)
+  VALUES (r.id, v.id, v_mois[1], v_total, v_moyen, p_image, v_details);
 END $$;
 
 -- Réponse du parent à une séance : 'present', 'absent' ou NULL (annuler)
@@ -434,7 +472,7 @@ GRANT EXECUTE ON FUNCTION parent_deconnexion(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_donnees(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_maj_photo(TEXT, INTEGER, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_autorisation_photos(TEXT, INTEGER, BOOLEAN) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION parent_deposer_paiement(TEXT, INTEGER, TEXT, INTEGER, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION parent_deposer_paiement(TEXT, INTEGER, JSONB, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_repondre_seance(TEXT, INTEGER, DATE, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_envoyer_message(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_messages_lus(TEXT) TO anon, authenticated;

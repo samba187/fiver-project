@@ -7,12 +7,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  appelParent, statutMoisEnfant, fraisEnVerification, libelleMois, telechargerRecu, imageEnDataUrl, LIBELLE_STATUT,
-  MOYENS_PAIEMENT_PARENT, type DonneesParent, type EnfantParent, type StatutMois,
+  appelParent, statutMoisEnfant, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
+  MOYENS_PAIEMENT_PARENT, MOYENS_SANS_CAPTURE, type DonneesParent, type EnfantParent, type StatutMois,
 } from "@/lib/parents";
 import {
   currentMonthStr, moisDeSaison, seancesEntre, dateLocale, decalerJours, JOURS_LONGS,
 } from "@/lib/academy";
+import { RecuAcademy, lignesRecu, recuEnPdf } from "@/components/academy/recu-academy";
 
 type Vue = "accueil" | "paiement" | "factures" | "entrainements" | "photos" | "suivi" | "messages";
 
@@ -254,31 +255,39 @@ function Accueil({ donnees, enfant, setEnfantId, setVue, nonLus, onRecharger, on
 
 function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: DonneesParent; enfant: EnfantParent; onRetour: () => void; onRecharger: () => Promise<void> }) {
   const moisActuel = currentMonthStr();
+  // Tout ce qui reste à payer sur la saison : frais + mois non réglés (y compris les mois à venir, pour payer d'avance)
   const options = useMemo(() => {
     const opts: { val: string; label: string; reste: number }[] = [];
     if (!enfant.frais_inscription_paye && !fraisEnVerification(enfant)) opts.push({ val: "FRAIS", label: "Frais d'inscription", reste: enfant.frais_inscription });
-    const limite = moisSuivant(moisActuel);
     for (const m of moisDeSaison(enfant.saison)) {
-      if (m > limite) break;
       const s = statutMoisEnfant(enfant, m, donnees.tarifs);
       if (["a_payer", "retard", "partiel", "a_venir"].includes(s.statut)) {
         opts.push({ val: m, label: libelleMois(m), reste: Math.max(0, s.du - s.paye) });
       }
     }
-    return opts;
-  }, [enfant, donnees.tarifs, moisActuel]);
+    return opts.filter(o => o.reste > 0);
+  }, [enfant, donnees.tarifs]);
 
-  const [mois, setMois] = useState(options.find(o => o.val === moisActuel)?.val || options[0]?.val || "");
-  const [montant, setMontant] = useState(String(options.find(o => o.val === mois)?.reste || ""));
+  const [choix, setChoix] = useState<string[]>(() => {
+    const defaut = options.find(o => o.val === moisActuel) || options.find(o => o.val !== "FRAIS") || options[0];
+    return defaut ? [defaut.val] : [];
+  });
+  const [montantSaisi, setMontantSaisi] = useState<string | null>(null);
   const [moyen, setMoyen] = useState("Bankily");
   const [image, setImage] = useState("");
   const [envoi, setEnvoi] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const inputImage = useRef<HTMLInputElement>(null);
 
-  function choisirMois(m: string) {
-    setMois(m);
-    setMontant(String(options.find(o => o.val === m)?.reste || ""));
+  const selection = options.filter(o => choix.includes(o.val));
+  const totalDu = selection.reduce((s, o) => s + o.reste, 0);
+  // Montant modifiable seulement pour un seul mois (paiement partiel)
+  const montant = selection.length === 1 && montantSaisi !== null ? parseInt(montantSaisi) || 0 : totalDu;
+  const sansCapture = MOYENS_SANS_CAPTURE.includes(moyen);
+
+  function basculer(val: string) {
+    setMontantSaisi(null);
+    setChoix(c => c.includes(val) ? c.filter(x => x !== val) : [...c, val]);
   }
 
   async function choisirImage(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -290,17 +299,26 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
 
   async function envoyer() {
     setMessage(null);
-    if (!mois || !image || !(parseInt(montant) > 0)) {
-      setMessage({ ok: false, texte: "Choisissez le mois, le montant et ajoutez la capture d'écran." });
+    if (selection.length === 0 || !(montant > 0)) {
+      setMessage({ ok: false, texte: "Choisissez au moins un mois à payer." });
       return;
     }
+    if (!image && !sansCapture) {
+      setMessage({ ok: false, texte: "Ajoutez la capture d'écran du paiement." });
+      return;
+    }
+    const details = selection.length === 1
+      ? [{ mois: selection[0].val, montant }]
+      : selection.map(o => ({ mois: o.val, montant: o.reste }));
     setEnvoi(true);
     try {
       await appelParent("parent_deposer_paiement", {
-        p_registration_id: enfant.id, p_mois: mois, p_montant: parseInt(montant), p_moyen: moyen, p_image: image,
+        p_registration_id: enfant.id, p_details: details, p_moyen: moyen, p_image: image || null,
       });
       setImage("");
-      setMessage({ ok: true, texte: "Paiement envoyé. L'académie va le vérifier." });
+      setChoix([]);
+      setMontantSaisi(null);
+      setMessage({ ok: true, texte: sansCapture ? "Paiement déclaré. L'académie le validera à réception." : "Paiement envoyé. L'académie va le vérifier." });
       await onRecharger();
     } catch (e) {
       setMessage({ ok: false, texte: e instanceof Error ? e.message : "Envoi impossible." });
@@ -320,18 +338,40 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
       <p className="mb-4 text-sm text-white/50">{enfant.prenom} {enfant.nom}</p>
 
       {options.length === 0 ? (
-        <div className="rounded-2xl border border-fiver-green/20 bg-fiver-green/5 p-4 text-sm text-fiver-green">Tout est réglé pour le moment.</div>
+        <div className="rounded-2xl border border-fiver-green/20 bg-fiver-green/5 p-4 text-sm text-fiver-green">
+          {message?.ok ? message.texte : "Tout est réglé pour le moment."}
+        </div>
       ) : (
         <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Pour</p>
-            <select value={mois} onChange={e => choisirMois(e.target.value)} className="w-full rounded-lg border border-white/10 bg-[#1a1a1a] px-3 py-3 text-base text-white">
-              {options.map(o => <option key={o.val} value={o.val}>{o.label}{o.reste ? ` — ${mru(o.reste)}` : ""}</option>)}
-            </select>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Je paie pour <span className="normal-case text-white/30">(plusieurs choix possibles)</span></p>
+            <div className="flex flex-col gap-1.5">
+              {options.map(o => {
+                const coche = choix.includes(o.val);
+                return (
+                  <button key={o.val} onClick={() => basculer(o.val)}
+                    className={cn("flex items-center gap-3 rounded-lg border px-3 py-3 text-left", coche ? "border-fiver-green bg-fiver-green/10" : "border-white/10 bg-white/[0.02]")}>
+                    <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded border", coche ? "border-fiver-green bg-fiver-green text-fiver-black" : "border-white/25")}>
+                      {coche && <Check className="h-3.5 w-3.5" />}
+                    </span>
+                    <span className={cn("flex-1 text-sm font-semibold", coche ? "text-white" : "text-white/70")}>
+                      {o.label}{o.val === moisActuel && <span className="ml-2 text-[11px] font-normal text-white/40">mois en cours</span>}
+                    </span>
+                    <span className="text-sm text-white/60">{mru(o.reste)}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Montant payé (MRU)</p>
-            <input type="number" inputMode="numeric" value={montant} onChange={e => setMontant(e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-base font-bold text-white" />
+            {selection.length === 1 ? (
+              <input type="number" inputMode="numeric" value={montantSaisi ?? String(totalDu)} onChange={e => setMontantSaisi(e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-base font-bold text-white" />
+            ) : (
+              <p className="rounded-lg border border-white/10 bg-white/5 px-3 py-3 text-base font-bold text-white">
+                {mru(totalDu)} {selection.length > 1 && <span className="text-xs font-normal text-white/40">pour {selection.length} éléments</span>}
+              </p>
+            )}
           </div>
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Moyen de paiement</p>
@@ -344,7 +384,14 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
             </div>
           </div>
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Capture d&apos;écran du paiement</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">
+              Capture d&apos;écran du paiement{sansCapture && <span className="normal-case text-white/30"> (facultatif)</span>}
+            </p>
+            {sansCapture && !image && (
+              <p className="mb-2 rounded-lg bg-white/[0.04] px-3 py-2.5 text-xs text-white/60">
+                Pas besoin de capture pour un paiement {moyen === "Cash" ? "en espèces" : "par un autre moyen"} : l&apos;académie validera à réception.
+              </p>
+            )}
             <input ref={inputImage} type="file" accept="image/*" className="hidden" onChange={choisirImage} />
             {image ? (
               <div className="relative">
@@ -353,18 +400,18 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
                 <button onClick={() => setImage("")} className="absolute right-2 top-2 rounded-full bg-black/70 p-1.5 text-white"><XIcon className="h-4 w-4" /></button>
               </div>
             ) : (
-              <button onClick={() => inputImage.current?.click()} className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed border-white/15 py-8 text-sm text-white/50">
-                <Camera className="h-6 w-6" /> Ajouter la capture
+              <button onClick={() => inputImage.current?.click()} className={cn("flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-white/15 text-sm text-white/50", sansCapture ? "py-3" : "flex-col py-8")}>
+                <Camera className="h-6 w-6" /> {sansCapture ? "Ajouter une photo du reçu" : "Ajouter la capture"}
               </button>
             )}
           </div>
           {message && <p className={cn("text-sm", message.ok ? "text-fiver-green" : "text-red-300")}>{message.texte}</p>}
-          <button onClick={envoyer} disabled={envoi} className="flex items-center justify-center gap-2 rounded-lg bg-fiver-green py-3.5 text-sm font-bold uppercase tracking-wide text-fiver-black disabled:opacity-50">
-            {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Envoyer
+          <button onClick={envoyer} disabled={envoi || selection.length === 0} className="flex items-center justify-center gap-2 rounded-lg bg-fiver-green py-3.5 text-sm font-bold uppercase tracking-wide text-fiver-black disabled:opacity-50">
+            {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {selection.length > 1 ? `Envoyer — ${mru(totalDu)}` : "Envoyer"}
           </button>
         </div>
       )}
-      {message?.ok && options.length === 0 && <p className="mt-3 text-sm text-fiver-green">{message.texte}</p>}
 
       {enfant.preuves.length > 0 && (
         <>
@@ -374,10 +421,10 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
               <div key={p.id} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-white">{libelleMois(p.mois_concerne)}</p>
+                    <p className="text-sm font-semibold text-white">{libelleDepot(p)}</p>
                     <p className="text-xs text-white/40">{mru(p.montant)} · {p.moyen_paiement} · {new Date(p.created_at).toLocaleDateString("fr-FR")}</p>
                   </div>
-                  <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold", STATUT_PREUVE[p.statut].cls)}>{STATUT_PREUVE[p.statut].label}</span>
+                  <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", STATUT_PREUVE[p.statut].cls)}>{STATUT_PREUVE[p.statut].label}</span>
                 </div>
                 {p.statut === "refuse" && p.motif_refus && <p className="mt-2 text-xs text-red-300">Motif : {p.motif_refus}</p>}
               </div>
@@ -391,32 +438,74 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
 
 // ======================= FACTURES =======================
 
+// Même reçu que celui envoyé par l'académie depuis la fiche de l'inscrit
 function VueFactures({ enfant, onRetour }: { enfant: EnfantParent; onRetour: () => void }) {
-  const paiements = enfant.academy_payments_history.filter(p => p.moyen_paiement !== "OFF" && p.montant > 0);
-  const [enCours, setEnCours] = useState<number | null>(null);
+  const lignes = useMemo(() => lignesRecu(enfant), [enfant]);
+  const [choix, setChoix] = useState<string[]>(() => lignes.map(l => l.id));
+  const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const recuRef = useRef<HTMLDivElement>(null);
+  const selection = lignes.filter(l => choix.includes(l.id));
+
+  async function telecharger() {
+    if (!recuRef.current || selection.length === 0) return;
+    setEnCours(true);
+    setErreur("");
+    try {
+      const pdf = await recuEnPdf(recuRef.current);
+      pdf.save(`Facture_Academy_${enfant.prenom}_${enfant.nom}.pdf`);
+    } catch {
+      setErreur("Téléchargement impossible. Réessayez.");
+    }
+    setEnCours(false);
+  }
+
   return (
     <>
       <EnTete titre="Mes factures" onRetour={onRetour} />
       <p className="mb-4 text-sm text-white/50">{enfant.prenom} {enfant.nom} · saison {enfant.saison}</p>
-      {paiements.length === 0 ? (
+      {lignes.length === 0 ? (
         <p className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/50">Aucun paiement enregistré pour cette saison.</p>
       ) : (
-        <div className="flex flex-col gap-2">
-          {paiements.map(p => (
-            <div key={p.id} className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-white">{libelleMois(p.mois_concerne)}</p>
-                <p className="text-xs text-white/40">{mru(p.montant)} · {p.moyen_paiement || "—"} · {new Date(p.date_paiement).toLocaleDateString("fr-FR")}</p>
+        <>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Paiements à inclure dans le reçu</p>
+          <div className="flex flex-col gap-1.5">
+            {lignes.map(l => {
+              const coche = choix.includes(l.id);
+              return (
+                <button key={l.id} onClick={() => setChoix(c => coche ? c.filter(x => x !== l.id) : [...c, l.id])}
+                  className={cn("flex items-center gap-3 rounded-lg border px-3 py-3 text-left", coche ? "border-fiver-green bg-fiver-green/10" : "border-white/10 bg-white/[0.02]")}>
+                  <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded border", coche ? "border-fiver-green bg-fiver-green text-fiver-black" : "border-white/25")}>
+                    {coche && <Check className="h-3.5 w-3.5" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-white">{l.label}</span>
+                    <span className="block text-xs text-white/40">{l.method} · {l.date ? new Date(l.date).toLocaleDateString("fr-FR") : "—"}</span>
+                  </span>
+                  <span className="text-sm font-bold text-white/80">{mru(l.amount)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between px-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-white/40">Total</span>
+            <span className="text-lg font-black text-fiver-green">{mru(selection.reduce((s, l) => s + l.amount, 0))}</span>
+          </div>
+          {erreur && <p className="mt-2 text-sm text-red-300">{erreur}</p>}
+          <button onClick={telecharger} disabled={enCours || selection.length === 0}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-fiver-green py-3.5 text-sm font-bold uppercase tracking-wide text-fiver-black disabled:opacity-50">
+            {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Télécharger le reçu
+          </button>
+
+          {/* Reçu rendu hors écran pour la génération du PDF */}
+          {selection.length > 0 && (
+            <div style={{ position: "fixed", top: "-9999px", left: "-9999px", zIndex: -100 }} aria-hidden>
+              <div ref={recuRef} style={{ width: "600px" }}>
+                <RecuAcademy joueur={enfant} lignes={selection} />
               </div>
-              <button
-                onClick={async () => { setEnCours(p.id); try { await telechargerRecu(enfant, p); } finally { setEnCours(null); } }}
-                className="flex items-center gap-1.5 rounded-lg bg-fiver-green/10 px-3 py-2 text-xs font-bold text-fiver-green"
-              >
-                {enCours === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Reçu
-              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </>
   );
