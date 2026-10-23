@@ -6,7 +6,7 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, CATEGORY_AGES, categorieParAge, debutSaison, mensualiteFiche } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, anneesCategorie, categorieParNaissance, debutSaison, mensualiteFiche } from "@/lib/academy";
 import { RecuAcademy, lignesRecu, libelleLigneMois, recuEnPdf } from "@/components/academy/recu-academy";
 import type { Registration, Tarifs } from "./page";
 import { ImportInscritsModal } from "./import-inscrits";
@@ -150,7 +150,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     setForm(prev => {
       const next = { ...prev, ...updates };
       if (updates.date_naissance !== undefined || updates.sexe !== undefined) {
-        const cat = categorieParAge(calcAge(next.date_naissance), next.sexe === "F");
+        const cat = categorieParNaissance(next.date_naissance, next.sexe === "F", next.saison || saison);
         if (cat) next.categorie_foot = cat;
       }
       if (updates.football !== undefined || updates.centre_loisirs !== undefined || next.categorie_foot !== prev.categorie_foot) {
@@ -1042,7 +1042,7 @@ Merci de votre confiance !`;
                         <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-white/50">Catégorie</label>
                         <select value={form.categorie_foot || ""} onChange={e => handleFormChange({ categorie_foot: e.target.value || null })} className={cn(inputClass, "font-bold text-fiver-green")}>
                           <option value="" className="bg-[#1a1a1a]">Sélectionner...</option>
-                          {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#1a1a1a]">{c}{CATEGORY_AGES[c] ? ` (${CATEGORY_AGES[c]})` : ""}</option>)}
+                          {CATEGORIES.map(c => <option key={c} value={c} className="bg-[#1a1a1a]">{c}{anneesCategorie(c, form.saison || saison) ? ` (${anneesCategorie(c, form.saison || saison)})` : ""}</option>)}
                           {form.categorie_foot && !CATEGORIES.includes(form.categorie_foot) && <option value={form.categorie_foot} className="bg-[#1a1a1a]">{form.categorie_foot} (ancienne catégorie)</option>}
                         </select>
                       </div>

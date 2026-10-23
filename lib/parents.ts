@@ -11,11 +11,11 @@ export interface PaiementParent { id: number; mois_concerne: string; montant: nu
 export interface LignePreuve { mois: string; montant: number }
 export interface PreuveParent {
   id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; statut: "en_attente" | "valide" | "refuse";
-  motif_refus: string | null; created_at: string;
+  motif_refus: string | null; created_at: string; traite_le?: string | null; note?: string | null;
   /** Mois couverts par un même dépôt (paiement de plusieurs mois en une fois) */
   details?: LignePreuve[] | null;
 }
-export interface EvaluationParent { id: number; date_eval: string; discipline: number | null; comportement: number | null; progression: number | null; commentaire: string | null; auteur: string | null }
+export interface EvaluationParent { id: number; date_eval: string; discipline: number | null; comportement: number | null; progression: number | null; commentaire: string | null; auteur: string | null; created_at?: string }
 export interface PhotoParent { id: number; url: string; legende: string | null; created_at: string }
 export interface SeanceParent { date: string; reponse: "present" | "absent" | null; presence: "present" | "absent" | null }
 
@@ -39,7 +39,7 @@ export interface MessageParent { id: number; sens: "parent" | "academie"; conten
 export interface DonneesParent {
   parent: { telephone: string; nom: string | null };
   saison: string;
-  tarifs: (TarifsMensuels & { jourLimitePaiement?: number; fraisInscription?: number; fraisInscriptionAncien?: number }) | null;
+  tarifs: (TarifsMensuels & { jourLimitePaiement?: number; fraisInscription?: number; fraisInscriptionAncien?: number; numeroPaiement?: string }) | null;
   planning: PlanningAcademy;
   enfants: EnfantParent[];
   annonces: AnnonceParent[];
@@ -63,7 +63,8 @@ const MESSAGES: Record<string, string> = {
   MOT_DE_PASSE_COURT: "Le mot de passe doit contenir au moins 6 caractères.",
   COMPTE_EXISTE: "Un compte existe déjà pour ce numéro. Connectez-vous.",
   CODE_INCORRECT: "Numéro ou code joueur incorrect. Le code est imprimé sur la carte de votre enfant.",
-  IDENTIFIANTS: "Numéro ou mot de passe incorrect. Première visite ? Créez d'abord votre compte avec l'onglet « Créer mon compte ».",
+  IDENTIFIANTS_ENFANT: "Numéro ou prénom incorrect. Utilisez le numéro donné à l'inscription et le prénom de votre enfant.",
+  IDENTIFIANTS: "Numéro ou mot de passe incorrect.",
   BLOQUE: "Trop d'essais. Réessayez dans 15 minutes.",
   COMPTE_DESACTIVE: "Ce compte a été désactivé. Contactez l'académie.",
   ENFANT_INCONNU: "Enfant introuvable.",
@@ -97,16 +98,9 @@ export function appelParent<T = void>(fn: string, args: Record<string, unknown> 
   return rpc<T>(fn, { p_token: sessionParent.get(), ...args });
 }
 
-export async function connexionParent(telephone: string, motDePasse: string) {
-  const r = await rpc<{ token?: string; erreur?: string }>("parent_connexion", { p_telephone: telephone, p_mot_de_passe: motDePasse });
-  if (!r?.token) throw new Error(messageErreur(r?.erreur || ""));
-  sessionParent.set(r.token);
-}
-
-export async function creerCompteParent(telephone: string, codeJoueur: string, motDePasse: string, nom: string) {
-  const r = await rpc<{ token?: string; erreur?: string }>("parent_creer_compte", {
-    p_telephone: telephone, p_code_joueur: codeJoueur, p_mot_de_passe: motDePasse, p_nom: nom || null,
-  });
+/** Connexion avec le numéro donné à l'inscription et le prénom d'un de ses enfants. */
+export async function connexionParent(telephone: string, prenomEnfant: string) {
+  const r = await rpc<{ token?: string; erreur?: string }>("parent_connexion_enfant", { p_telephone: telephone, p_prenom: prenomEnfant });
   if (!r?.token) throw new Error(messageErreur(r?.erreur || ""));
   sessionParent.set(r.token);
 }
@@ -188,3 +182,49 @@ export function libelleMois(mois: string) {
 export const MOYENS_PAIEMENT_PARENT = ["Bankily", "Masrvi", "Sedad", "Bimbank", "Cash", "Autre"];
 /** Moyens pour lesquels aucune capture d'écran n'est demandée */
 export const MOYENS_SANS_CAPTURE = ["Cash", "Autre"];
+
+/** Numéro sur lequel les parents envoient leurs paiements (réglable dans Paramètres). */
+export const NUMERO_PAIEMENT_DEFAUT = "48 86 92 79";
+
+// ---------- Notifications (ce que le parent n'a pas encore vu) ----------
+
+export type Vus = Record<string, string>;
+
+const cleVus = (tel: string) => `fiveur_vus_${tel}`;
+
+/** Dates de dernière consultation par rubrique ; au tout premier passage, tout l'existant compte comme vu. */
+export function lireVus(tel: string): Vus {
+  try {
+    const brut = localStorage.getItem(cleVus(tel));
+    if (brut) return JSON.parse(brut);
+    const init = { init: new Date().toISOString() };
+    localStorage.setItem(cleVus(tel), JSON.stringify(init));
+    return init;
+  } catch {
+    return { init: new Date().toISOString() };
+  }
+}
+
+export function marquerVu(tel: string, vus: Vus, cle: string): Vus {
+  const next = { ...vus, [cle]: new Date().toISOString() };
+  try { localStorage.setItem(cleVus(tel), JSON.stringify(next)); } catch {}
+  return next;
+}
+
+// Dates comparées en millisecondes (la base et le navigateur n'écrivent pas les dates pareil)
+const apres = (date: string | null | undefined, vus: Vus, cle: string) =>
+  !!date && Date.parse(date) > Date.parse(vus[cle] || vus.init || "1970-01-01");
+
+export interface NotifsEnfant { paiements: PreuveParent[]; photos: number; evaluations: number }
+
+export function notificationsEnfant(e: EnfantParent, vus: Vus): NotifsEnfant {
+  return {
+    paiements: e.preuves.filter(p => p.statut !== "en_attente" && apres(p.traite_le, vus, `paiements:${e.id}`)),
+    photos: e.photos.filter(p => apres(p.created_at, vus, `photos:${e.id}`)).length,
+    evaluations: e.evaluations.filter(ev => apres(ev.created_at, vus, `suivi:${e.id}`)).length,
+  };
+}
+
+export function nouvellesAnnonces(d: DonneesParent, vus: Vus) {
+  return d.annonces.filter(a => apres(a.created_at, vus, "annonces"));
+}

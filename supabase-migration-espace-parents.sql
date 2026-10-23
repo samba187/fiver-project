@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS parent_secrets (
   bloque_jusqua TIMESTAMPTZ
 );
 
+-- Essais de connexion ratés (numéro + prénom), pour bloquer les essais en série
+CREATE TABLE IF NOT EXISTS parent_tentatives (
+  telephone TEXT PRIMARY KEY,
+  echecs INT NOT NULL DEFAULT 0,
+  bloque_jusqua TIMESTAMPTZ
+);
+
 CREATE TABLE IF NOT EXISTS parent_sessions (
   token TEXT PRIMARY KEY,
   parent_id UUID NOT NULL REFERENCES parent_comptes(id) ON DELETE CASCADE,
@@ -57,6 +64,8 @@ CREATE TABLE IF NOT EXISTS academy_preuves_paiement (
 CREATE INDEX IF NOT EXISTS idx_preuves_statut ON academy_preuves_paiement (statut, created_at DESC);
 -- Paiement de plusieurs mois en une fois : [{"mois": "2026-10", "montant": 1000}, ...]
 ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS details JSONB;
+-- Note laissée par le parent avec son paiement
+ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS note TEXT;
 
 -- ---------- Séances : réponse des parents + présence pointée par le coach ----------
 CREATE TABLE IF NOT EXISTS academy_seance_presences (
@@ -140,6 +149,7 @@ CREATE TABLE IF NOT EXISTS staff_comptes (
 ALTER TABLE parent_comptes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parent_secrets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parent_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parent_tentatives ENABLE ROW LEVEL SECURITY;
 ALTER TABLE academy_preuves_paiement ENABLE ROW LEVEL SECURITY;
 ALTER TABLE academy_seance_presences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE academy_evaluations ENABLE ROW LEVEL SECURITY;
@@ -149,7 +159,7 @@ ALTER TABLE parent_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE academy_annonces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_comptes ENABLE ROW LEVEL SECURITY;
 
--- Le personnel connecté (admin / coach) gère tout ; parent_secrets et parent_sessions n'ont aucune policy.
+-- Le personnel connecté (admin / coach) gère tout ; parent_secrets, parent_sessions et parent_tentatives n'ont aucune policy.
 DO $$
 DECLARE t TEXT;
 BEGIN
@@ -168,6 +178,12 @@ END $$;
 CREATE OR REPLACE FUNCTION tel8(p TEXT) RETURNS TEXT
 LANGUAGE sql IMMUTABLE AS $$
   SELECT right(regexp_replace(coalesce(p, ''), '\D', '', 'g'), 8)
+$$;
+
+-- Nom sans accents, espaces ni tirets : "Mohamed-Lémine" -> "mohamedlemine"
+CREATE OR REPLACE FUNCTION _norm_nom(p TEXT) RETURNS TEXT
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT regexp_replace(translate(lower(coalesce(p, '')), 'àâäáãåçéèêëíìîïñóòôöõúùûüýÿ', 'aaaaaaceeeeiiiinooooouuuuyy'), '[^a-z0-9]', '', 'g')
 $$;
 
 CREATE OR REPLACE FUNCTION _saison_courante() RETURNS TEXT
@@ -267,6 +283,43 @@ BEGIN
   RETURN jsonb_build_object('token', _parent_nouvelle_session(v_compte.id));
 END $$;
 
+-- Connexion simple : numéro de téléphone + prénom d'un de ses enfants (sans mot de passe).
+-- Le compte est créé automatiquement à la première connexion. 8 essais ratés = 15 min de blocage.
+CREATE OR REPLACE FUNCTION parent_connexion_enfant(p_telephone TEXT, p_prenom TEXT) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+DECLARE
+  v_tel TEXT := tel8(p_telephone);
+  v_nom TEXT := _norm_nom(p_prenom);
+  v_t parent_tentatives;
+  v_compte parent_comptes;
+BEGIN
+  IF length(v_tel) <> 8 THEN RETURN jsonb_build_object('erreur', 'TELEPHONE_INVALIDE'); END IF;
+  SELECT * INTO v_t FROM parent_tentatives WHERE telephone = v_tel;
+  IF v_t.bloque_jusqua IS NOT NULL AND v_t.bloque_jusqua > now() THEN RETURN jsonb_build_object('erreur', 'BLOQUE'); END IF;
+
+  IF length(v_nom) < 2 OR NOT EXISTS (
+    SELECT 1 FROM academy_registrations r
+    WHERE tel8(r.telephone_parent) = v_tel
+      AND v_nom IN (_norm_nom(r.prenom), _norm_nom(r.prenom || r.nom), _norm_nom(r.nom || r.prenom),
+                    _norm_nom(r.prenom || coalesce(r.nom_pere, '')), _norm_nom(r.prenom || coalesce(r.nom_pere, '') || r.nom))
+  ) THEN
+    INSERT INTO parent_tentatives (telephone, echecs) VALUES (v_tel, 1)
+    ON CONFLICT (telephone) DO UPDATE SET
+      echecs = CASE WHEN parent_tentatives.echecs + 1 >= 8 THEN 0 ELSE parent_tentatives.echecs + 1 END,
+      bloque_jusqua = CASE WHEN parent_tentatives.echecs + 1 >= 8 THEN now() + interval '15 minutes' ELSE parent_tentatives.bloque_jusqua END;
+    RETURN jsonb_build_object('erreur', 'IDENTIFIANTS_ENFANT');
+  END IF;
+
+  DELETE FROM parent_tentatives WHERE telephone = v_tel;
+  SELECT * INTO v_compte FROM parent_comptes WHERE telephone = v_tel;
+  IF NOT FOUND THEN
+    INSERT INTO parent_comptes (telephone) VALUES (v_tel) RETURNING * INTO v_compte;
+  ELSIF NOT v_compte.actif THEN
+    RETURN jsonb_build_object('erreur', 'COMPTE_DESACTIVE');
+  END IF;
+  RETURN jsonb_build_object('token', _parent_nouvelle_session(v_compte.id));
+END $$;
+
 CREATE OR REPLACE FUNCTION parent_deconnexion(p_token TEXT) RETURNS void
 LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
   DELETE FROM parent_sessions WHERE token = p_token
@@ -301,13 +354,13 @@ BEGIN
           FROM academy_payments_history h WHERE h.registration_id = r.id), '[]'::jsonb),
         'preuves', coalesce((
           SELECT jsonb_agg(jsonb_build_object('id', p.id, 'mois_concerne', p.mois_concerne, 'montant', p.montant,
-                                              'moyen_paiement', p.moyen_paiement, 'statut', p.statut, 'details', p.details,
-                                              'motif_refus', p.motif_refus, 'created_at', p.created_at) ORDER BY p.created_at DESC)
+                                              'moyen_paiement', p.moyen_paiement, 'statut', p.statut, 'details', p.details, 'note', p.note,
+                                              'motif_refus', p.motif_refus, 'traite_le', p.traite_le, 'created_at', p.created_at) ORDER BY p.created_at DESC)
           FROM academy_preuves_paiement p WHERE p.registration_id = r.id), '[]'::jsonb),
         'evaluations', coalesce((
           SELECT jsonb_agg(jsonb_build_object('id', e.id, 'date_eval', e.date_eval, 'discipline', e.discipline,
                                               'comportement', e.comportement, 'progression', e.progression,
-                                              'commentaire', e.commentaire, 'auteur', e.auteur) ORDER BY e.date_eval DESC, e.id DESC)
+                                              'commentaire', e.commentaire, 'auteur', e.auteur, 'created_at', e.created_at) ORDER BY e.date_eval DESC, e.id DESC)
           FROM academy_evaluations e WHERE e.registration_id = r.id AND e.visible), '[]'::jsonb),
         'photos', CASE WHEN coalesce(r.autorisation_photos, true) THEN coalesce((
           SELECT jsonb_agg(jsonb_build_object('id', g.id, 'url', g.url, 'legende', g.legende, 'created_at', g.created_at) ORDER BY g.created_at DESC)
@@ -362,9 +415,10 @@ END $$;
 
 -- Dépôt d'un paiement (un ou plusieurs mois, et/ou les frais), à valider par l'admin.
 -- p_details : [{"mois": "YYYY-MM" | "FRAIS", "montant": 1000}, ...]
--- Capture obligatoire sauf pour un paiement Cash ou Autre.
+-- Capture obligatoire sauf pour un paiement Cash ou Autre. p_note : message facultatif du parent.
 DROP FUNCTION IF EXISTS parent_deposer_paiement(TEXT, INTEGER, TEXT, INTEGER, TEXT, TEXT);
-CREATE OR REPLACE FUNCTION parent_deposer_paiement(p_token TEXT, p_registration_id INTEGER, p_details JSONB, p_moyen TEXT, p_image TEXT DEFAULT NULL)
+DROP FUNCTION IF EXISTS parent_deposer_paiement(TEXT, INTEGER, JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION parent_deposer_paiement(p_token TEXT, p_registration_id INTEGER, p_details JSONB, p_moyen TEXT, p_image TEXT DEFAULT NULL, p_note TEXT DEFAULT NULL)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
@@ -409,8 +463,8 @@ BEGIN
     RAISE EXCEPTION 'TROP_DE_DEPOTS';
   END IF;
 
-  INSERT INTO academy_preuves_paiement (registration_id, parent_id, mois_concerne, montant, moyen_paiement, image, details)
-  VALUES (r.id, v.id, v_mois[1], v_total, v_moyen, p_image, v_details);
+  INSERT INTO academy_preuves_paiement (registration_id, parent_id, mois_concerne, montant, moyen_paiement, image, details, note)
+  VALUES (r.id, v.id, v_mois[1], v_total, v_moyen, p_image, v_details, nullif(left(trim(coalesce(p_note, '')), 500), ''));
 END $$;
 
 -- Réponse du parent à une séance : 'present', 'absent' ou NULL (annuler)
@@ -472,7 +526,8 @@ GRANT EXECUTE ON FUNCTION parent_deconnexion(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_donnees(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_maj_photo(TEXT, INTEGER, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_autorisation_photos(TEXT, INTEGER, BOOLEAN) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION parent_deposer_paiement(TEXT, INTEGER, JSONB, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION parent_deposer_paiement(TEXT, INTEGER, JSONB, TEXT, TEXT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION parent_connexion_enfant(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_repondre_seance(TEXT, INTEGER, DATE, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_envoyer_message(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_messages_lus(TEXT) TO anon, authenticated;

@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Loader2, Check, X as XIcon, Send, Trash2, KeyRound, Upload, MessageCircle, Megaphone, Users, UserCog } from "lucide-react";
+import { Loader2, Check, X as XIcon, Send, Trash2, Upload, MessageCircle, Megaphone, Users, UserCog } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { ACADEMY_CATEGORIES, fetchSaisonCourante, tel8 } from "@/lib/academy";
@@ -10,7 +10,7 @@ import { libelleDepot, lignesPreuve, MOYENS_SANS_CAPTURE, type LignePreuve } fro
 
 interface Enfant { id: number; nom: string; prenom: string; categorie_foot: string | null; telephone_parent: string | null }
 interface Preuve {
-  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; details: LignePreuve[] | null;
+  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; details: LignePreuve[] | null; note: string | null;
   statut: "en_attente" | "valide" | "refuse"; motif_refus: string | null; traite_par: string | null; created_at: string;
 }
 interface Compte { id: string; telephone: string; nom: string | null; actif: boolean; created_at: string; derniere_connexion: string | null }
@@ -38,7 +38,7 @@ export default function EspaceParentsAdminPage() {
     const saison = await fetchSaisonCourante();
     const [r, p, c, m, a, s] = await Promise.all([
       supabase.from("academy_registrations").select("id, nom, prenom, categorie_foot, telephone_parent").eq("saison", saison),
-      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, details, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
+      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, details, note, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
       supabase.from("parent_comptes").select("*").order("created_at", { ascending: false }),
       supabase.from("parent_messages").select("*").order("created_at", { ascending: true }),
       supabase.from("academy_annonces").select("*").order("created_at", { ascending: false }),
@@ -58,6 +58,12 @@ export default function EspaceParentsAdminPage() {
   useEffect(() => {
     charger();
     supabase.auth.getUser().then(({ data }) => setMoi(data.user?.email?.split("@")[0] || "admin"));
+  }, [charger]);
+
+  // Nouveaux paiements et messages des parents sans recharger la page
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === "visible") charger(); }, 15000);
+    return () => clearInterval(t);
   }, [charger]);
 
   const enAttente = preuves.filter(p => p.statut === "en_attente").length;
@@ -176,6 +182,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-white">{nomEnfant(enfants, p.registration_id)} <span className="font-normal text-white/40">· {libelleDepot(p)}</span></p>
             <p className="text-xs text-white/40">{mru(p.montant)} · {p.moyen_paiement} · déposé le {new Date(p.created_at).toLocaleDateString("fr-FR")}</p>
+            {p.note && <p className="mt-0.5 truncate text-xs text-sky-300/80">Note : {p.note}</p>}
           </div>
           <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold",
             p.statut === "en_attente" ? "bg-amber-400/15 text-amber-300" : p.statut === "valide" ? "bg-fiver-green/15 text-fiver-green" : "bg-red-500/15 text-red-300")}>
@@ -195,6 +202,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
                   <p className="mt-1 text-xs text-white/40">{lignesPreuve(ouverte).map(l => `${libelleDepot({ ...ouverte, details: [l] })} : ${mru(l.montant)}`).join(" · ")}</p>
                 )}
                 <p className="text-xs text-white/30">Tél. {enfants.find(e => e.id === ouverte.registration_id)?.telephone_parent || "—"}</p>
+                {ouverte.note && <p className="mt-2 rounded-md border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">Note du parent : {ouverte.note}</p>}
               </div>
               <button onClick={() => setOuverte(null)} className="text-white/40 hover:text-white"><XIcon className="h-5 w-5" /></button>
             </div>
@@ -255,13 +263,17 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
   const fil = parentId ? messages.filter(m => m.parent_id === parentId) : [];
   const compte = comptes.find(c => c.id === parentId);
 
-  async function ouvrir(id: string) {
-    setParentId(id);
-    if (messages.some(m => m.parent_id === id && m.sens === "parent" && !m.lu)) {
-      await supabase.from("parent_messages").update({ lu: true }).eq("parent_id", id).eq("sens", "parent").eq("lu", false);
-      await onMaj();
-    }
-  }
+  const ouvrir = (id: string) => setParentId(id);
+  const finFil = useRef<HTMLDivElement>(null);
+
+  // Conversation ouverte : les messages du parent (y compris ceux qui arrivent) sont marqués lus
+  const nonLusFil = parentId ? messages.filter(m => m.parent_id === parentId && m.sens === "parent" && !m.lu).length : 0;
+  useEffect(() => {
+    if (!parentId || nonLusFil === 0) return;
+    supabase.from("parent_messages").update({ lu: true }).eq("parent_id", parentId).eq("sens", "parent").eq("lu", false).then(() => onMaj());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentId, nonLusFil]);
+  useEffect(() => { finFil.current?.scrollIntoView({ block: "nearest" }); }, [parentId, fil.length]);
 
   async function envoyer() {
     if (!parentId || !texte.trim()) return;
@@ -306,6 +318,7 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
                 </p>
               </div>
             ))}
+            <div ref={finFil} />
           </div>
           <div className="mt-3 flex gap-2">
             <textarea value={texte} onChange={e => setTexte(e.target.value)} rows={2} placeholder="Votre réponse…" className={cn(champ, "resize-none")} />
@@ -383,14 +396,6 @@ function OngletComptes({ comptes, enfants, onMaj }: { comptes: Compte[]; enfants
     return `${c.telephone} ${c.nom || ""} ${noms}`.toLowerCase().includes(q);
   });
 
-  async function nouveauMotDePasse(c: Compte) {
-    const mdp = prompt(`Nouveau mot de passe pour ${c.nom || c.telephone} (6 caractères minimum) :`);
-    if (!mdp) return;
-    const { error } = await supabase.rpc("admin_parent_mot_de_passe", { p_parent_id: c.id, p_mot_de_passe: mdp });
-    if (error) alert(error.message.includes("COURT") ? "Mot de passe trop court." : error.message);
-    else alert(`Mot de passe changé. Communiquez-le au parent : ${mdp}`);
-  }
-
   async function basculer(c: Compte) {
     await supabase.from("parent_comptes").update({ actif: !c.actif }).eq("id", c.id);
     await onMaj();
@@ -400,7 +405,7 @@ function OngletComptes({ comptes, enfants, onMaj }: { comptes: Compte[]; enfants
     <div className="flex flex-col gap-3">
       <p className="text-sm text-white/50">
         <strong className="text-white">{comptes.length}</strong> compte(s) parent · <strong className="text-amber-300">{sansCompte}</strong> famille(s) inscrite(s) sans compte.
-        Les parents créent leur compte eux-mêmes avec leur numéro et le code joueur de la carte.
+        Les parents se connectent avec le numéro donné à l&apos;inscription et le prénom de leur enfant (compte créé automatiquement).
       </p>
       <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher un parent, un enfant, un numéro…" className={champ} />
       {liste.map(c => {
@@ -414,7 +419,6 @@ function OngletComptes({ comptes, enfants, onMaj }: { comptes: Compte[]; enfants
                 {" · "}{c.derniere_connexion ? `vu le ${new Date(c.derniere_connexion).toLocaleDateString("fr-FR")}` : "jamais connecté"}
               </p>
             </div>
-            <button onClick={() => nouveauMotDePasse(c)} className="flex items-center gap-1.5 rounded-md bg-white/5 px-3 py-2 text-xs text-white/70 hover:bg-white/10"><KeyRound className="h-3.5 w-3.5" /> Mot de passe</button>
             <button onClick={() => basculer(c)} className={cn("rounded-md px-3 py-2 text-xs font-semibold", c.actif ? "bg-red-500/10 text-red-300" : "bg-fiver-green/10 text-fiver-green")}>
               {c.actif ? "Désactiver" : "Réactiver"}
             </button>

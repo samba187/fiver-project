@@ -139,6 +139,20 @@ export async function POST(request: Request) {
         `${siteUrl}/staff/loisirs`,
         "Gérer les Loisirs"
       );
+    } else if (type === 'paiement_parent') {
+      // Texte saisi par un parent : échappé avant d'être mis dans l'e-mail
+      const esc = (v: unknown) => String(v ?? '').slice(0, 500).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+      subject = '💳 Paiement à vérifier : ' + String(data.enfant || '').slice(0, 80);
+      const lignes: Record<string, string> = {
+        "Enfant": `${esc(data.enfant)}${data.categorie ? ` (${esc(data.categorie)})` : ''}`,
+        "Téléphone parent": esc(data.telephone),
+        "Pour": esc(data.objet),
+        "Montant": `${esc(data.montant)} MRU`,
+        "Moyen de paiement": esc(data.moyen),
+        "Capture": esc(data.capture),
+      };
+      if (data.note) lignes["Note du parent"] = esc(data.note);
+      html = buildEmail('Nouveau paiement déposé par un parent', lignes, `${siteUrl}/staff/espace-parents`, "Vérifier le paiement");
     } else if (type === 'sport_feminin') {
       subject = '💖 Inscription Sport Féminin : ' + data.prenom + ' ' + data.nom;
       html = buildEmail(

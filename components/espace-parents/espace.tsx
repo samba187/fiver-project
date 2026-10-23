@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LogOut, Camera, Upload, FileText, CalendarDays, Images, ClipboardCheck, MessageCircle, Bell,
-  ChevronLeft, Loader2, Check, X as XIcon, Clock, Download, Send, CircleCheck, CircleAlert,
+  ChevronLeft, Loader2, Check, X as XIcon, Clock, Download, Send, CircleCheck, CircleAlert, Copy, Smartphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   appelParent, statutMoisEnfant, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
-  MOYENS_PAIEMENT_PARENT, MOYENS_SANS_CAPTURE, type DonneesParent, type EnfantParent, type StatutMois,
+  MOYENS_PAIEMENT_PARENT, MOYENS_SANS_CAPTURE, NUMERO_PAIEMENT_DEFAUT, lireVus, marquerVu, notificationsEnfant, nouvellesAnnonces,
+  type DonneesParent, type EnfantParent, type StatutMois, type Vus,
 } from "@/lib/parents";
 import {
   currentMonthStr, moisDeSaison, seancesEntre, dateLocale, decalerJours, JOURS_LONGS,
@@ -71,15 +72,28 @@ export function EspaceParent({ donnees, onRecharger, onDeconnexion }: { donnees:
   const [enfantId, setEnfantId] = useState<number | null>(donnees.enfants[0]?.id ?? null);
   const enfant = donnees.enfants.find(e => e.id === enfantId) || donnees.enfants[0] || null;
   const nonLus = donnees.messages.filter(m => m.sens === "academie" && !m.lu).length;
+  const tel = donnees.parent.telephone;
+  const [vus, setVus] = useState<Vus>(() => lireVus(tel));
+  const marquer = (cle: string) => setVus(v => marquerVu(tel, v, cle));
 
   useEffect(() => { window.scrollTo(0, 0); }, [vue]);
 
+  // Ouvrir une rubrique la marque comme vue pour cet enfant
+  useEffect(() => {
+    if (!enfant) return;
+    if (vue === "paiement") marquer(`paiements:${enfant.id}`);
+    if (vue === "photos") marquer(`photos:${enfant.id}`);
+    if (vue === "suivi") marquer(`suivi:${enfant.id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vue, enfant?.id]);
+
   const retour = () => setVue("accueil");
+  const ouvrir = (v: Vue, idEnfant?: number) => { if (idEnfant) setEnfantId(idEnfant); setVue(v); };
 
   return (
     <div className="mx-auto w-full max-w-md px-4 pb-16 pt-5">
       {vue === "accueil" && (
-        <Accueil donnees={donnees} enfant={enfant} setEnfantId={setEnfantId} setVue={setVue} nonLus={nonLus} onRecharger={onRecharger} onDeconnexion={onDeconnexion} />
+        <Accueil donnees={donnees} enfant={enfant} setEnfantId={setEnfantId} ouvrir={ouvrir} nonLus={nonLus} vus={vus} onAnnoncesVues={() => marquer("annonces")} onRecharger={onRecharger} onDeconnexion={onDeconnexion} />
       )}
       {vue === "paiement" && enfant && <VuePaiement donnees={donnees} enfant={enfant} onRetour={retour} onRecharger={onRecharger} />}
       {vue === "factures" && enfant && <VueFactures enfant={enfant} onRetour={retour} />}
@@ -93,12 +107,14 @@ export function EspaceParent({ donnees, onRecharger, onDeconnexion }: { donnees:
 
 // ======================= ACCUEIL =======================
 
-function Accueil({ donnees, enfant, setEnfantId, setVue, nonLus, onRecharger, onDeconnexion }: {
-  donnees: DonneesParent; enfant: EnfantParent | null; setEnfantId: (id: number) => void; setVue: (v: Vue) => void;
-  nonLus: number; onRecharger: () => Promise<void>; onDeconnexion: () => void;
+function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnoncesVues, onRecharger, onDeconnexion }: {
+  donnees: DonneesParent; enfant: EnfantParent | null; setEnfantId: (id: number) => void; ouvrir: (v: Vue, idEnfant?: number) => void;
+  nonLus: number; vus: Vus; onAnnoncesVues: () => void; onRecharger: () => Promise<void>; onDeconnexion: () => void;
 }) {
+  const setVue = (v: Vue) => ouvrir(v);
   const inputPhoto = useRef<HTMLInputElement>(null);
   const [envoiPhoto, setEnvoiPhoto] = useState(false);
+  const [cloche, setCloche] = useState(false);
   const [erreurPhoto, setErreurPhoto] = useState("");
   const moisActuel = currentMonthStr();
 
@@ -118,13 +134,35 @@ function Accueil({ donnees, enfant, setEnfantId, setVue, nonLus, onRecharger, on
     setEnvoiPhoto(false);
   }
 
-  const enAttente = enfant ? enfant.preuves.filter(p => p.statut === "en_attente").length : 0;
+  // Notifications : décisions sur les paiements, nouvelles photos / évaluations, messages, annonces
+  const notifs = enfant ? notificationsEnfant(enfant, vus) : null;
+  const annoncesNeuves = nouvellesAnnonces(donnees, vus);
+  const elements: { cle: string; texte: string; action: () => void; ton?: "ok" | "ko" }[] = [];
+  if (nonLus > 0) elements.push({ cle: "msg", texte: `${nonLus} nouveau${nonLus > 1 ? "x" : ""} message${nonLus > 1 ? "s" : ""} de l'académie`, action: () => ouvrir("messages") });
+  for (const e of donnees.enfants) {
+    const n = notificationsEnfant(e, vus);
+    for (const p of n.paiements) {
+      elements.push({
+        cle: `p${p.id}`, ton: p.statut === "valide" ? "ok" : "ko", action: () => ouvrir("paiement", e.id),
+        texte: `${e.prenom} : paiement ${p.statut === "valide" ? "validé" : "refusé"} (${libelleDepot(p)})`,
+      });
+    }
+    if (n.photos > 0) elements.push({ cle: `ph${e.id}`, texte: `${n.photos} nouvelle${n.photos > 1 ? "s" : ""} photo${n.photos > 1 ? "s" : ""} de ${e.prenom}`, action: () => ouvrir("photos", e.id) });
+    if (n.evaluations > 0) elements.push({ cle: `ev${e.id}`, texte: `Nouvelle évaluation pour ${e.prenom}`, action: () => ouvrir("suivi", e.id) });
+  }
+  for (const a of annoncesNeuves) elements.push({ cle: `a${a.id}`, texte: `Annonce : ${a.titre}`, action: () => { setCloche(false); onAnnoncesVues(); } });
+
+  function fermerCloche() {
+    setCloche(false);
+    if (annoncesNeuves.length > 0) onAnnoncesVues();
+  }
+
   const services: { vue: Vue; label: string; icon: typeof Upload; badge?: number }[] = [
-    { vue: "paiement", label: "Déposer un paiement", icon: Upload, badge: enAttente },
+    { vue: "paiement", label: "Déposer un paiement", icon: Upload, badge: notifs?.paiements.length },
     { vue: "factures", label: "Mes factures", icon: FileText },
     { vue: "entrainements", label: "Entraînements", icon: CalendarDays },
-    { vue: "photos", label: "Mes photos", icon: Images },
-    { vue: "suivi", label: "Suivi sportif", icon: ClipboardCheck },
+    { vue: "photos", label: "Mes photos", icon: Images, badge: notifs?.photos },
+    { vue: "suivi", label: "Suivi sportif", icon: ClipboardCheck, badge: notifs?.evaluations },
     { vue: "messages", label: "Messages", icon: MessageCircle, badge: nonLus },
   ];
 
@@ -135,10 +173,39 @@ function Accueil({ donnees, enfant, setEnfantId, setVue, nonLus, onRecharger, on
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fiver-green">Fiveur Academy</p>
           <h1 className="font-[var(--font-heading)] text-2xl font-bold uppercase text-white">Espace Parents</h1>
         </div>
-        <button onClick={onDeconnexion} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white/60" aria-label="Se déconnecter">
-          <LogOut className="h-4 w-4" />
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => (cloche ? fermerCloche() : setCloche(true))} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white/70" aria-label="Notifications">
+            <Bell className="h-4 w-4" />
+            {elements.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{elements.length}</span>
+            )}
+          </button>
+          <button onClick={onDeconnexion} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-white/60" aria-label="Se déconnecter">
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {cloche && (
+        <div className="mb-4 rounded-2xl border border-white/10 bg-[#141414] p-3">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <p className="text-sm font-bold text-white">Notifications</p>
+            <button onClick={fermerCloche} className="text-white/40" aria-label="Fermer"><XIcon className="h-4 w-4" /></button>
+          </div>
+          {elements.length === 0 ? (
+            <p className="px-1 py-2 text-sm text-white/40">Rien de nouveau pour le moment.</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {elements.map(el => (
+                <button key={el.cle} onClick={el.action} className="flex items-center gap-2 rounded-lg px-2 py-2.5 text-left text-sm text-white/85 active:bg-white/5">
+                  <span className={cn("h-2 w-2 shrink-0 rounded-full", el.ton === "ko" ? "bg-red-400" : "bg-fiver-green")} />
+                  {el.texte}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {donnees.enfants.length > 1 && (
         <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1">
@@ -239,7 +306,10 @@ function Accueil({ donnees, enfant, setEnfantId, setVue, nonLus, onRecharger, on
           <div className="mt-3 flex flex-col gap-3">
             {donnees.annonces.slice(0, 5).map(a => (
               <div key={a.id} className="border-t border-white/5 pt-3 first:border-0 first:pt-0">
-                <p className="text-sm font-semibold text-white">{a.titre}</p>
+                <p className="text-sm font-semibold text-white">
+                  {a.titre}
+                  {annoncesNeuves.some(n => n.id === a.id) && <span className="ml-2 rounded-full bg-red-500 px-1.5 py-0.5 align-middle text-[10px] font-bold text-white">Nouveau</span>}
+                </p>
                 {a.contenu && <p className="mt-0.5 whitespace-pre-line text-sm text-white/60">{a.contenu}</p>}
                 <p className="mt-1 text-[11px] text-white/30">{new Date(a.created_at).toLocaleDateString("fr-FR")}{a.categorie ? ` · ${a.categorie}` : ""}</p>
               </div>
@@ -275,6 +345,9 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
   const [montantSaisi, setMontantSaisi] = useState<string | null>(null);
   const [moyen, setMoyen] = useState("Bankily");
   const [image, setImage] = useState("");
+  const [note, setNote] = useState("");
+  const [copie, setCopie] = useState(false);
+  const numero = donnees.tarifs?.numeroPaiement || NUMERO_PAIEMENT_DEFAUT;
   const [envoi, setEnvoi] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const inputImage = useRef<HTMLInputElement>(null);
@@ -313,9 +386,24 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
     setEnvoi(true);
     try {
       await appelParent("parent_deposer_paiement", {
-        p_registration_id: enfant.id, p_details: details, p_moyen: moyen, p_image: image || null,
+        p_registration_id: enfant.id, p_details: details, p_moyen: moyen, p_image: image || null, p_note: note.trim() || null,
       });
+      // Prévenir l'académie par e-mail (sans bloquer le parent si l'envoi échoue)
+      fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "paiement_parent",
+          origin: window.location.origin,
+          data: {
+            enfant: `${enfant.prenom} ${enfant.nom}`, categorie: enfant.categorie_foot || "", telephone: donnees.parent.telephone,
+            objet: selection.map(o => o.label).join(" + "), montant: details.reduce((t, d) => t + d.montant, 0),
+            moyen, capture: image ? "Oui" : "Non", note: note.trim(),
+          },
+        }),
+      }).catch(() => {});
       setImage("");
+      setNote("");
       setChoix([]);
       setMontantSaisi(null);
       setMessage({ ok: true, texte: sansCapture ? "Paiement déclaré. L'académie le validera à réception." : "Paiement envoyé. L'académie va le vérifier." });
@@ -383,6 +471,21 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
               ))}
             </div>
           </div>
+          {!sansCapture && (
+            <div className="rounded-lg border border-fiver-green/25 bg-fiver-green/5 p-3">
+              <p className="text-xs text-white/60">Envoyez le paiement {moyen} au numéro :</p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="flex items-center gap-2 text-xl font-black tracking-wider text-fiver-green"><Smartphone className="h-5 w-5" /> {numero}</p>
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(numero.replace(/\s/g, "")).then(() => { setCopie(true); setTimeout(() => setCopie(false), 1500); }).catch(() => {}); }}
+                  className="flex items-center gap-1 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white/80"
+                >
+                  {copie ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copie ? "Copié" : "Copier"}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-white/40">Puis ajoutez la capture d&apos;écran ci-dessous.</p>
+            </div>
+          )}
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">
               Capture d&apos;écran du paiement{sansCapture && <span className="normal-case text-white/30"> (facultatif)</span>}
@@ -405,6 +508,12 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
               </button>
             )}
           </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Note pour l&apos;académie <span className="normal-case text-white/30">(facultatif)</span></p>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={500}
+              placeholder="Ex : payé par le papa, numéro 22 33 44 55"
+              className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-base text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none" />
+          </div>
           {message && <p className={cn("text-sm", message.ok ? "text-fiver-green" : "text-red-300")}>{message.texte}</p>}
           <button onClick={envoyer} disabled={envoi || selection.length === 0} className="flex items-center justify-center gap-2 rounded-lg bg-fiver-green py-3.5 text-sm font-bold uppercase tracking-wide text-fiver-black disabled:opacity-50">
             {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -426,6 +535,7 @@ function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: Donn
                   </div>
                   <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold", STATUT_PREUVE[p.statut].cls)}>{STATUT_PREUVE[p.statut].label}</span>
                 </div>
+                {p.note && <p className="mt-1.5 text-xs text-white/50">Votre note : {p.note}</p>}
                 {p.statut === "refuse" && p.motif_refus && <p className="mt-2 text-xs text-red-300">Motif : {p.motif_refus}</p>}
               </div>
             ))}
@@ -706,7 +816,7 @@ function VueMessages({ donnees, onRetour, onRecharger }: { donnees: DonneesParen
   useEffect(() => {
     if (nonLus) appelParent("parent_messages_lus").then(onRecharger).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [nonLus]);
   useEffect(() => { fin.current?.scrollIntoView(); }, [donnees.messages.length]);
 
   async function envoyer() {

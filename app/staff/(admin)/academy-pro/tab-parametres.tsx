@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { ACADEMY_CATEGORIES, JOURS_COURTS, fetchPlanning, type PlanningAcademy } from "@/lib/academy";
 import type { Tarifs } from "./page";
+import { NUMERO_PAIEMENT_DEFAUT } from "@/lib/parents";
 
 const inputClass = "w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green";
 // Lundi en premier
@@ -119,6 +120,10 @@ export function TabParametres({ tarifs, setTarifs }: { tarifs: Tarifs; setTarifs
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Inscription « fin de mois » à partir du</label>
             <input type="number" min={15} max={31} value={tarifs.seuilFinDeMois} onChange={e => setTarifs({ ...tarifs, seuilFinDeMois: Math.min(31, Math.max(15, parseInt(e.target.value) || 25)) })} className={inputClass} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Numéro pour les paiements (affiché aux parents)</label>
+            <input type="tel" value={tarifs.numeroPaiement ?? NUMERO_PAIEMENT_DEFAUT} onChange={e => setTarifs({ ...tarifs, numeroPaiement: e.target.value })} className={inputClass} placeholder={NUMERO_PAIEMENT_DEFAUT} />
           </div>
         </div>
       </div>

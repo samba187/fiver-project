@@ -67,6 +67,8 @@ export interface Tarifs {
   tarifsCategorie?: Record<string, number>;
   jourLimitePaiement: number;
   seuilFinDeMois: number;
+  /** Numéro Bankily / Masrvi… affiché aux parents dans l'Espace Parents */
+  numeroPaiement?: string;
 }
 
 const DEFAULT_TARIFS: Tarifs = {

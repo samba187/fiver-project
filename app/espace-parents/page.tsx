@@ -29,6 +29,13 @@ export default function EspaceParentsPage() {
     return () => document.removeEventListener("visibilitychange", surRetour);
   }, [charger]);
 
+  // Et toutes les 20 s quand la page est ouverte : messages et validations arrivent sans recharger
+  useEffect(() => {
+    if (etat !== "pret") return;
+    const t = setInterval(() => { if (document.visibilityState === "visible" && sessionParent.get()) charger(); }, 20000);
+    return () => clearInterval(t);
+  }, [etat, charger]);
+
   async function deconnexion() {
     await deconnexionParent();
     setDonnees(null);

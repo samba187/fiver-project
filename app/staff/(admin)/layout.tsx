@@ -37,7 +37,7 @@ const SIDEBAR_LINKS = [
   { href: "/staff/espace-parents", label: "Espace Parents", icon: UserRound },
   { href: "/staff/seances", label: "Séances", icon: CalendarDays },
   { href: "/staff/joueurs", label: "Joueurs", icon: Shirt },
-  { href: "/staff/contacts", label: "Messages", icon: MessageCircle },
+  { href: "/staff/contacts", label: "Messages du site", icon: MessageCircle },
   { href: "/staff/sport-feminin", label: "Sport Féminin", icon: Heart },
   { href: "/staff/transport", label: "Transport", icon: Truck },
   { href: "/staff/terrains", label: "Terrains", icon: LayoutGrid },
@@ -53,6 +53,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [authed, setAuthed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("Admin");
+  // Espace Parents : paiements à vérifier + messages de parents non lus
+  const [aTraiter, setATraiter] = useState(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -64,6 +66,21 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!authed) return;
+    let actif = true;
+    async function compter() {
+      const [p, m] = await Promise.all([
+        supabase.from("academy_preuves_paiement").select("id").eq("statut", "en_attente").limit(200),
+        supabase.from("parent_messages").select("id").eq("sens", "parent").eq("lu", false).limit(200),
+      ]);
+      if (actif) setATraiter((p.data?.length || 0) + (m.data?.length || 0));
+    }
+    compter();
+    const t = setInterval(compter, 30000);
+    return () => { actif = false; clearInterval(t); };
+  }, [authed, pathname]);
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -105,6 +122,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   >
                     <link.icon className="h-4 w-4" />
                     {link.label}
+                    {link.href === "/staff/espace-parents" && aTraiter > 0 && (
+                      <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{aTraiter}</span>
+                    )}
                   </Link>
                 </li>
               );
@@ -135,8 +155,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex flex-1 flex-col min-w-0">
         <header className="flex h-14 items-center justify-between border-b border-white/5 bg-fiver-black px-4 lg:hidden">
           <Image src="/logo.png" alt="FIVER" width={80} height={28} className="h-6 w-auto" />
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white/70" aria-label="Menu">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="relative text-white/70" aria-label="Menu">
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {!sidebarOpen && aTraiter > 0 && <span className="absolute -right-1.5 -top-1.5 h-2.5 w-2.5 rounded-full bg-red-500" />}
           </button>
         </header>
 
@@ -168,6 +189,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                         >
                           <link.icon className="h-4 w-4" />
                           {link.label}
+                          {link.href === "/staff/espace-parents" && aTraiter > 0 && (
+                            <span className="ml-auto rounded-full bg-red-500 px-1.5 text-[11px] font-bold text-white">{aTraiter}</span>
+                          )}
                         </Link>
                       </li>
                     );

@@ -90,13 +90,16 @@ export function SeancesView() {
   if (chargement) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-fiver-green" /></div>;
 
   const parId = new Map(lignes.map(l => [l.registration_id, l]));
+  // Statut retenu : pointage du coach, sinon scan à l'accueil, sinon réponse du parent
+  const statut = (id: number): "present" | "absent" | null => {
+    const l = parId.get(id);
+    return l?.presence_reelle || (scans.has(id) ? "present" : l?.reponse_parent || null);
+  };
   const groupes = [
-    { cle: "present", titre: "Présents", sousTitre: "confirmés par les parents", cls: "text-fiver-green", liste: joueursCat.filter(j => parId.get(j.id)?.reponse_parent === "present") },
-    { cle: "absent", titre: "Absents", sousTitre: "signalés par les parents", cls: "text-red-300", liste: joueursCat.filter(j => parId.get(j.id)?.reponse_parent === "absent") },
-    { cle: "sans", titre: "Sans réponse", sousTitre: "", cls: "text-white/60", liste: joueursCat.filter(j => !parId.get(j.id)?.reponse_parent) },
+    { cle: "present", titre: "Présents", sousTitre: "pointés, scannés ou confirmés par le parent", cls: "text-fiver-green", liste: joueursCat.filter(j => statut(j.id) === "present") },
+    { cle: "absent", titre: "Absents", sousTitre: "pointés absents ou signalés par le parent", cls: "text-red-300", liste: joueursCat.filter(j => statut(j.id) === "absent") },
+    { cle: "sans", titre: "Sans réponse", sousTitre: "", cls: "text-white/60", liste: joueursCat.filter(j => !statut(j.id)) },
   ];
-  const pointables = date <= aujourdhui;
-  const nbPresentsReels = joueursCat.filter(j => parId.get(j.id)?.presence_reelle === "present" || (scans.has(j.id) && parId.get(j.id)?.presence_reelle !== "absent")).length;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -126,11 +129,9 @@ export function SeancesView() {
           </div>
         ))}
       </div>
-      {pointables && (
-        <p className="text-xs text-white/40">
-          Pointage réel : <strong className="text-fiver-green">{nbPresentsReels}</strong> présent(s) sur {joueursCat.length}. Les enfants scannés à l&apos;accueil sont comptés présents.
-        </p>
-      )}
+      <p className="text-xs text-white/40">
+        Touchez ✓ ou ✗ pour pointer un enfant : il passe dans la bonne liste. Retouchez pour annuler votre pointage.
+      </p>
 
       {groupes.map(g => (
         <section key={g.cle}>
@@ -143,7 +144,9 @@ export function SeancesView() {
             <div className="flex flex-col gap-1.5">
               {g.liste.map(j => {
                 const reel = parId.get(j.id)?.presence_reelle || null;
+                const reponse = parId.get(j.id)?.reponse_parent || null;
                 const scanne = scans.has(j.id);
+                const st = statut(j.id);
                 return (
                   <div key={j.id} className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
                     <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/5">
@@ -157,20 +160,20 @@ export function SeancesView() {
                       <div className="flex gap-1.5">
                         {scanne && <span className="flex items-center gap-0.5 text-[10px] font-bold text-fiver-green"><ScanLine className="h-3 w-3" /> Scanné</span>}
                         {j.autorisation_sortie === false && <span className="text-[10px] font-bold text-red-300">Ne rentre pas seul</span>}
-                        {g.cle === "sans" && !scanne && <span className="flex items-center gap-0.5 text-[10px] text-white/30"><HelpCircle className="h-3 w-3" /> pas de réponse</span>}
+                        {reel && <span className="text-[10px] font-bold text-white/50">Pointé {reel === "present" ? "présent" : "absent"}</span>}
+                        {reponse && <span className={cn("text-[10px]", reponse === "absent" ? "text-red-300/80" : "text-white/40")}>Parent : {reponse === "present" ? "présent" : "absent"}</span>}
+                        {g.cle === "sans" && <span className="flex items-center gap-0.5 text-[10px] text-white/30"><HelpCircle className="h-3 w-3" /> pas de réponse</span>}
                       </div>
                     </div>
-                    {pointables && (
-                      majEnCours === j.id ? <Loader2 className="h-4 w-4 animate-spin text-fiver-green" /> : (
-                        <div className="flex gap-1">
-                          <button onClick={() => pointer(j.id, "present")} aria-label="Présent" className={cn("flex h-9 w-9 items-center justify-center rounded-lg", reel === "present" || (scanne && !reel) ? "bg-fiver-green text-fiver-black" : "bg-white/5 text-white/40")}>
-                            <Check className="h-4 w-4" />
-                          </button>
-                          <button onClick={() => pointer(j.id, "absent")} aria-label="Absent" className={cn("flex h-9 w-9 items-center justify-center rounded-lg", reel === "absent" ? "bg-red-500 text-white" : "bg-white/5 text-white/40")}>
-                            <XIcon className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )
+                    {majEnCours === j.id ? <Loader2 className="h-4 w-4 animate-spin text-fiver-green" /> : (
+                      <div className="flex gap-1">
+                        <button onClick={() => pointer(j.id, "present")} aria-label="Présent" className={cn("flex h-9 w-9 items-center justify-center rounded-lg", reel === "present" ? "bg-fiver-green text-fiver-black" : st === "present" ? "bg-fiver-green/25 text-fiver-green" : "bg-white/5 text-white/40")}>
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => pointer(j.id, "absent")} aria-label="Absent" className={cn("flex h-9 w-9 items-center justify-center rounded-lg", reel === "absent" ? "bg-red-500 text-white" : st === "absent" ? "bg-red-500/25 text-red-300" : "bg-white/5 text-white/40")}>
+                          <XIcon className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 );

@@ -3,9 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Loader2, Phone, Lock, IdCard, User, AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { connexionParent, creerCompteParent } from "@/lib/parents";
+import { Loader2, Phone, Baby, AlertCircle } from "lucide-react";
+import { connexionParent } from "@/lib/parents";
 
 const champ = "w-full rounded-lg border border-white/10 bg-white/5 py-3 pl-11 pr-4 text-base text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none";
 
@@ -18,24 +17,19 @@ function Champ({ icon: Icon, ...props }: { icon: typeof Phone } & React.InputHTM
   );
 }
 
+// Connexion simple : numéro donné à l'inscription + prénom d'un de ses enfants
 export function ConnexionParent({ onConnecte }: { onConnecte: () => void }) {
-  const [mode, setMode] = useState<"connexion" | "creation">("connexion");
   const [telephone, setTelephone] = useState("");
-  const [motDePasse, setMotDePasse] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [code, setCode] = useState("");
-  const [nom, setNom] = useState("");
+  const [prenom, setPrenom] = useState("");
   const [erreur, setErreur] = useState("");
   const [chargement, setChargement] = useState(false);
 
   async function valider(e: React.FormEvent) {
     e.preventDefault();
     setErreur("");
-    if (mode === "creation" && motDePasse !== confirmation) { setErreur("Les deux mots de passe ne sont pas identiques."); return; }
     setChargement(true);
     try {
-      if (mode === "connexion") await connexionParent(telephone, motDePasse);
-      else await creerCompteParent(telephone, code, motDePasse, nom);
+      await connexionParent(telephone, prenom);
       onConnecte();
     } catch (err) {
       setErreur(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -51,37 +45,13 @@ export function ConnexionParent({ onConnecte }: { onConnecte: () => void }) {
       <p className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-fiver-green">Fiveur Academy</p>
       <h1 className="mt-1 text-center font-[var(--font-heading)] text-3xl font-bold uppercase text-white">Espace Parents</h1>
 
-      <div className="mt-8 grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1">
-        {(["connexion", "creation"] as const).map(m => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => { setMode(m); setErreur(""); }}
-            className={cn("rounded-md py-2.5 text-sm font-semibold transition-colors", mode === m ? "bg-fiver-green text-fiver-black" : "text-white/50")}
-          >
-            {m === "connexion" ? "Se connecter" : "Créer mon compte"}
-          </button>
-        ))}
-      </div>
-
-      <form onSubmit={valider} className="mt-6 flex flex-col gap-3">
+      <form onSubmit={valider} className="mt-8 flex flex-col gap-3">
         <Champ icon={Phone} type="tel" inputMode="tel" autoComplete="tel" required placeholder="Numéro de téléphone" value={telephone} onChange={e => setTelephone(e.target.value)} />
-        {mode === "creation" && (
-          <>
-            <Champ icon={IdCard} required placeholder="Code joueur (sur la carte)" value={code} onChange={e => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" />
-            <Champ icon={User} placeholder="Votre nom (facultatif)" value={nom} onChange={e => setNom(e.target.value)} />
-          </>
-        )}
-        <Champ icon={Lock} type="password" required minLength={6} autoComplete={mode === "connexion" ? "current-password" : "new-password"} placeholder="Mot de passe" value={motDePasse} onChange={e => setMotDePasse(e.target.value)} />
-        {mode === "creation" && (
-          <Champ icon={Lock} type="password" required minLength={6} autoComplete="new-password" placeholder="Confirmer le mot de passe" value={confirmation} onChange={e => setConfirmation(e.target.value)} />
-        )}
+        <Champ icon={Baby} required autoComplete="off" autoCapitalize="words" placeholder="Prénom de votre enfant" value={prenom} onChange={e => setPrenom(e.target.value)} />
 
-        {mode === "creation" && (
-          <p className="text-xs text-white/40">
-            Utilisez le numéro donné à l&apos;inscription. Tous vos enfants inscrits avec ce numéro apparaîtront dans votre espace.
-          </p>
-        )}
+        <p className="text-xs text-white/40">
+          Utilisez le numéro donné à l&apos;inscription. Tous vos enfants inscrits avec ce numéro apparaîtront dans votre espace.
+        </p>
 
         {erreur && (
           <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-sm text-red-300">
@@ -91,13 +61,9 @@ export function ConnexionParent({ onConnecte }: { onConnecte: () => void }) {
 
         <button type="submit" disabled={chargement} className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-fiver-green py-3.5 text-sm font-bold uppercase tracking-wide text-fiver-black disabled:opacity-50">
           {chargement && <Loader2 className="h-4 w-4 animate-spin" />}
-          {mode === "connexion" ? "Se connecter" : "Créer mon compte"}
+          Accéder à mon espace
         </button>
       </form>
-
-      {mode === "connexion" && (
-        <p className="mt-4 text-center text-xs text-white/40">Mot de passe oublié ? Contactez l&apos;académie, elle vous en donnera un nouveau.</p>
-      )}
 
       <div className="mt-auto flex items-center justify-center gap-4 pt-12 text-xs text-white/30">
         <Link href="/staff" className="hover:text-white/60">Accès coach</Link>

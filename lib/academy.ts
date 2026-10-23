@@ -4,13 +4,43 @@ export const SAISON_FALLBACK = "2025-2026";
 
 export type MonthStatus = "paye" | "partiel" | "non_paye" | "off";
 
-export const ACADEMY_CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U15", "U15F", "U17"];
+export const ACADEMY_CATEGORIES = ["U5", "U7", "U9", "U11", "U12F", "U13", "U13 Elite", "U15", "U15F", "U17"];
 
-export const CATEGORY_AGES: Record<string, string> = {
-  "U5": "2-5 ans",
-  "U7": "6-7 ans",
-  "U17": "16-17 ans",
-};
+/**
+ * Catégories par année de naissance (comme l'affiche des horaires) : pour la saison
+ * 2026-2027, U5 = 2021-2022, U7 = 2019-2020, … U17 = 2009-2010.
+ * Les plus jeunes (nés après) vont aussi en U5. U13 Elite se choisit à la main.
+ */
+const CATEGORIES_PAR_ANNEE: [string, number][] = [["U5", 5], ["U7", 7], ["U9", 9], ["U11", 11], ["U13", 13], ["U15", 15], ["U17", 17]];
+
+function anneeFinSaison(saison: string | null | undefined) {
+  const fin = parseInt((saison || "").split("-")[1] || "");
+  if (fin) return fin;
+  const d = new Date();
+  return d.getMonth() >= 9 ? d.getFullYear() + 1 : d.getFullYear();
+}
+
+/** Années de naissance d'une catégorie pour une saison, ex : "2021-2022". */
+export function anneesCategorie(cat: string, saison?: string | null): string {
+  const fin = anneeFinSaison(saison);
+  const base = cat === "U13 Elite" ? 13 : cat === "U12F" ? 12 : cat === "U15F" ? 15 : CATEGORIES_PAR_ANNEE.find(([c]) => c === cat)?.[1];
+  if (!base) return "";
+  if (cat === "U12F") return `filles ${fin - 13}-${fin - 9}`;
+  if (cat === "U15F") return `filles ${fin - 16}-${fin - 14}`;
+  return `${fin - base - 1}-${fin - base}`;
+}
+
+/** Catégorie proposée d'après la date de naissance et la saison. */
+export function categorieParNaissance(dateNaissance: string | null | undefined, isGirl: boolean, saison?: string | null): string {
+  const annee = dateNaissance ? parseInt(dateNaissance.slice(0, 4)) : NaN;
+  if (!annee) return "";
+  const fin = anneeFinSaison(saison);
+  if (annee >= fin - 8) return annee >= fin - 6 ? "U5" : "U7";
+  if (isGirl && annee >= fin - 13) return "U12F";
+  if (isGirl && annee >= fin - 16) return "U15F";
+  for (const [cat, base] of CATEGORIES_PAR_ANNEE) if (annee >= fin - base - 1) return cat;
+  return "";
+}
 
 /** Catégories présentes dans une liste d'inscrits, dans l'ordre officiel (+ anciennes catégories éventuelles à la fin). */
 export function categoriesPresentes(cats: (string | null | undefined)[]): string[] {
@@ -18,19 +48,6 @@ export function categoriesPresentes(cats: (string | null | undefined)[]): string
   return [...ACADEMY_CATEGORIES.filter(c => presentes.has(c)), ...[...presentes].filter(c => !ACADEMY_CATEGORIES.includes(c)).sort()];
 }
 
-export function categorieParAge(age: number | null, isGirl: boolean): string {
-  if (age === null || age < 2) return "";
-  if (age <= 5) return "U5";
-  if (age <= 7) return "U7";
-  if (isGirl && age <= 12) return "U12F";
-  if (isGirl && age <= 15) return "U15F";
-  if (age <= 9) return "U9";
-  if (age <= 11) return "U11";
-  if (age <= 13) return "U13";
-  if (age <= 15) return "U15";
-  if (age <= 17) return "U17";
-  return "";
-}
 
 export interface PaymentHistoryEntry {
   mois_concerne: string;
@@ -155,16 +172,18 @@ export type PlanningAcademy = Record<string, CreneauPlanning>;
 export const JOURS_COURTS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 export const JOURS_LONGS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 
+// Horaires d'entraînement saison 2026-2027 (0 = dimanche … 6 = samedi)
 export const DEFAULT_PLANNING: PlanningAcademy = {
-  "U5": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
-  "U7": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 1" },
-  "U9": { jours: [3, 5], heure: "15h45 - 17h00", terrain: "Terrain 2" },
-  "U11": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 1" },
-  "U12F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
-  "U13": { jours: [3, 5], heure: "17h45 - 19h00", terrain: "Terrain 1" },
-  "U15": { jours: [3, 5], heure: "17h45 - 19h00", terrain: "Terrain 2" },
-  "U15F": { jours: [3, 5], heure: "16h45 - 18h00", terrain: "Terrain 2" },
-  "U17": { jours: [3, 5], heure: "", terrain: "" },
+  "U5": { jours: [3, 5], heure: "16h - 17h", terrain: "Terrain 1" },
+  "U7": { jours: [3, 5], heure: "17h - 18h", terrain: "Terrain 1" },
+  "U9": { jours: [3, 5], heure: "17h - 18h", terrain: "Terrain 2" },
+  "U11": { jours: [3, 5], heure: "18h - 19h", terrain: "Terrain 2" },
+  "U12F": { jours: [0], heure: "17h - 18h", terrain: "Terrain 2" },
+  "U13": { jours: [3, 5], heure: "18h - 19h", terrain: "Terrain 1" },
+  "U13 Elite": { jours: [2, 4], heure: "18h - 19h", terrain: "Terrain 1" },
+  "U15": { jours: [3, 5], heure: "16h - 17h", terrain: "Terrain 2" },
+  "U15F": { jours: [0], heure: "17h - 18h", terrain: "Terrain 2" },
+  "U17": { jours: [3, 5], heure: "16h - 17h", terrain: "Terrain 2" },
 };
 
 export function lirePlanning(valeur: unknown): PlanningAcademy {

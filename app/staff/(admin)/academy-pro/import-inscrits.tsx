@@ -4,17 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, X as XIcon, AlertTriangle, Search, Square, CheckSquare, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { categorieParAge, generateBadgeCode, mensualiteFiche } from "@/lib/academy";
+import { categorieParNaissance, generateBadgeCode, mensualiteFiche } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 
-function ageAujourdhui(dob: string | null) {
-  if (!dob) return null;
-  return Math.floor((Date.now() - new Date(dob).getTime()) / 31557600000);
-}
-
-// L'enfant a pris un an : catégorie recalculée, l'ancienne est gardée s'il n'a pas de date de naissance
-function nouvelleCategorie(r: Registration) {
-  return categorieParAge(ageAujourdhui(r.date_naissance), r.sexe === "F") || r.categorie_foot || "";
+// Catégorie recalculée pour la nouvelle saison (année de naissance) ; l'ancienne est gardée sans date de naissance.
+// Un U13 Elite qui reste dans la tranche U13 garde sa sélection.
+function nouvelleCategorie(r: Registration, saison: string) {
+  const cat = categorieParNaissance(r.date_naissance, r.sexe === "F", saison);
+  if (r.categorie_foot === "U13 Elite" && cat === "U13") return "U13 Elite";
+  return cat || r.categorie_foot || "";
 }
 
 function cleNom(r: Pick<Registration, "nom" | "prenom">) {
@@ -90,7 +88,7 @@ export function ImportInscritsModal({
     setSaving(true);
     setError("");
     const rows = cibles.map(r => {
-      const tarif_total = mensualiteFiche({ ...r, categorie_foot: nouvelleCategorie(r) || null }, tarifs);
+      const tarif_total = mensualiteFiche({ ...r, categorie_foot: nouvelleCategorie(r, saison) || null }, tarifs);
       return {
         nom: r.nom,
         prenom: r.prenom,
@@ -101,7 +99,7 @@ export function ImportInscritsModal({
         adresse: r.adresse,
         football: r.football,
         centre_loisirs: r.centre_loisirs,
-        categorie_foot: nouvelleCategorie(r) || null,
+        categorie_foot: nouvelleCategorie(r, saison) || null,
         // Nouvelle saison = tarifs actuels : on n'hérite pas d'un ancien prix saisi sur la fiche
         tarif_football: 0,
         tarif_loisirs: 0,
@@ -179,7 +177,7 @@ export function ImportInscritsModal({
           ) : affiches.map(r => {
             const importe = dejaLa(r);
             const checked = selected.has(r.id);
-            const cat = nouvelleCategorie(r);
+            const cat = nouvelleCategorie(r, saison);
             return (
               <button
                 key={r.id}
