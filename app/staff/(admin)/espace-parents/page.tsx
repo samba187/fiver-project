@@ -102,6 +102,16 @@ export default function EspaceParentsAdminPage() {
   );
 }
 
+/** Un compte parent affiché par ses enfants : "Awa & Samba COULIBALY" (repli : nom du parent ou numéro). */
+function nomFamille(c: Compte, enfants: Enfant[]) {
+  const ses = enfants.filter(e => tel8(e.telephone_parent) === c.telephone);
+  if (ses.length === 0) return c.nom || c.telephone;
+  if (new Set(ses.map(e => e.nom.toUpperCase())).size === 1) return `${ses.map(e => e.prenom).join(" & ")} ${ses[0].nom.toUpperCase()}`;
+  return ses.map(e => `${e.prenom} ${e.nom.toUpperCase()}`).join(", ");
+}
+
+const sousTitreParent = (c: Compte) => `Parent${c.nom ? ` ${c.nom}` : ""} · ${c.telephone}`;
+
 function nomEnfant(enfants: Enfant[], id: number) {
   const e = enfants.find(x => x.id === id);
   return e ? `${e.prenom} ${e.nom}` : `Fiche n°${id}`;
@@ -115,6 +125,28 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
   const [motif, setMotif] = useState("");
   const [enCours, setEnCours] = useState(false);
   const [filtre, setFiltre] = useState<"en_attente" | "traites">("en_attente");
+  // Après validation : message WhatsApp envoyé automatiquement, ou prêt à envoyer en un clic
+  const [confirmation, setConfirmation] = useState<{ enfant: string; envoye: boolean; lien: string | null; erreur?: boolean } | null>(null);
+
+  async function prevenirParent(p: Preuve) {
+    const enfant = nomEnfant(enfants, p.registration_id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/whatsapp/paiement-valide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token || ""}` },
+        body: JSON.stringify({ preuveId: p.id, origin: window.location.origin }),
+      });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.erreur);
+      setConfirmation({
+        enfant, envoye: !!r.envoye,
+        lien: r.telephone ? `https://wa.me/${r.telephone}?text=${encodeURIComponent(r.message)}` : null,
+      });
+    } catch {
+      setConfirmation({ enfant, envoye: false, lien: null, erreur: true });
+    }
+  }
 
   async function ouvrir(p: Preuve) {
     setOuverte(p);
@@ -149,6 +181,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
       const { error: eP } = await supabase.from("academy_preuves_paiement").update({ statut: "valide", traite_par: moi, traite_le: new Date().toISOString() }).eq("id", p.id);
       if (eP) throw eP;
       setOuverte(null);
+      await prevenirParent(p);
       await onMaj();
     } catch (e) {
       alert("Validation impossible : " + (e instanceof Error ? e.message : String(e)));
@@ -190,6 +223,27 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
           </span>
         </button>
       ))}
+
+      {confirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={() => setConfirmation(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#111] p-5 text-center" onClick={e => e.stopPropagation()}>
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-fiver-green/15 text-fiver-green"><Check className="h-6 w-6" /></div>
+            <p className="mt-3 text-lg font-bold text-white">Paiement validé</p>
+            <p className="text-sm text-white/50">{confirmation.enfant}</p>
+            {confirmation.envoye ? (
+              <p className="mt-4 rounded-lg bg-fiver-green/10 px-3 py-2.5 text-sm text-fiver-green">Message WhatsApp de confirmation envoyé au parent.</p>
+            ) : confirmation.lien ? (
+              <a href={confirmation.lien} target="_blank" rel="noreferrer" onClick={() => setTimeout(() => setConfirmation(null), 300)}
+                className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-[#25D366] py-3.5 text-sm font-black text-black">
+                <MessageCircle className="h-5 w-5" /> Prévenir le parent sur WhatsApp
+              </a>
+            ) : (
+              <p className="mt-4 text-sm text-white/40">{confirmation.erreur ? "Message WhatsApp indisponible pour le moment." : "Pas de numéro de téléphone pour ce parent."}</p>
+            )}
+            <button onClick={() => setConfirmation(null)} className="mt-3 w-full rounded-lg py-2.5 text-sm text-white/50 hover:text-white">Fermer</button>
+          </div>
+        </div>
+      )}
 
       {ouverte && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4" onClick={() => setOuverte(null)}>
@@ -259,7 +313,6 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
       .sort((a, b) => (b.dernier?.created_at || "").localeCompare(a.dernier?.created_at || ""));
   }, [comptes, messages]);
 
-  const enfantsDe = (c: Compte) => enfants.filter(e => tel8(e.telephone_parent) === c.telephone).map(e => e.prenom).join(", ");
   const fil = parentId ? messages.filter(m => m.parent_id === parentId) : [];
   const compte = comptes.find(c => c.id === parentId);
 
@@ -290,10 +343,10 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
         {fils.map(f => (
           <button key={f.compte.id} onClick={() => ouvrir(f.compte.id)} className={cn("rounded-lg border px-3 py-2.5 text-left", parentId === f.compte.id ? "border-fiver-green/40 bg-fiver-green/10" : "border-white/5 bg-white/[0.03] hover:bg-white/[0.06]")}>
             <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-semibold text-white">{f.compte.nom || f.compte.telephone}</p>
+              <p className="truncate text-sm font-semibold text-white">{nomFamille(f.compte, enfants)}</p>
               {f.nonLus > 0 && <span className="rounded-full bg-fiver-green px-1.5 text-[11px] font-bold text-fiver-black">{f.nonLus}</span>}
             </div>
-            <p className="truncate text-xs text-white/40">{enfantsDe(f.compte) || f.compte.telephone}</p>
+            <p className="truncate text-xs text-white/40">{sousTitreParent(f.compte)}</p>
             {f.dernier && <p className="mt-0.5 truncate text-xs text-white/30">{f.dernier.sens === "academie" ? "Vous : " : ""}{f.dernier.contenu}</p>}
           </button>
         ))}
@@ -303,8 +356,8 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
         <div className="flex flex-col rounded-lg border border-white/5 bg-white/[0.02] p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <p className="font-semibold text-white">{compte.nom || compte.telephone}</p>
-              <p className="text-xs text-white/40">{compte.telephone} · {enfantsDe(compte)}</p>
+              <p className="font-semibold text-white">{nomFamille(compte, enfants)}</p>
+              <p className="text-xs text-white/40">{sousTitreParent(compte)}</p>
             </div>
             <button onClick={() => setParentId(null)} className="text-white/40 hover:text-white lg:hidden"><XIcon className="h-5 w-5" /></button>
           </div>
@@ -413,7 +466,7 @@ function OngletComptes({ comptes, enfants, onMaj }: { comptes: Compte[]; enfants
         return (
           <div key={c.id} className={cn("flex flex-wrap items-center gap-3 rounded-lg border border-white/5 bg-white/[0.03] px-4 py-3", !c.actif && "opacity-50")}>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white">{c.nom || "Parent"} <span className="font-mono font-normal text-white/50">{c.telephone}</span></p>
+              <p className="text-sm font-semibold text-white">{nomFamille(c, enfants)} <span className="font-mono font-normal text-white/50">{c.telephone}</span></p>
               <p className="text-xs text-white/40">
                 {ses.length ? ses.map(e => `${e.prenom} (${e.categorie_foot || "—"})`).join(", ") : "Aucun enfant cette saison"}
                 {" · "}{c.derniere_connexion ? `vu le ${new Date(c.derniere_connexion).toLocaleDateString("fr-FR")}` : "jamais connecté"}
