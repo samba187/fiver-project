@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Loader2, Check, X as XIcon, Send, Trash2, Upload, MessageCircle, Megaphone, Users, UserCog } from "lucide-react";
+import { Loader2, Check, X as XIcon, Send, Trash2, Upload, MessageCircle, Megaphone, Users, UserCog, ImagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { ACADEMY_CATEGORIES, fetchSaisonCourante, tel8 } from "@/lib/academy";
-import { libelleDepot, lignesPreuve, MOYENS_SANS_CAPTURE, type LignePreuve } from "@/lib/parents";
+import { libelleDepot, lignesPreuve, imageEnDataUrl, MOYENS_SANS_CAPTURE, type LignePreuve } from "@/lib/parents";
 
 interface Enfant { id: number; nom: string; prenom: string; categorie_foot: string | null; telephone_parent: string | null }
 interface Preuve {
@@ -15,7 +15,7 @@ interface Preuve {
 }
 interface Compte { id: string; telephone: string; nom: string | null; actif: boolean; created_at: string; derniere_connexion: string | null }
 interface Message { id: number; parent_id: string; sens: "parent" | "academie"; contenu: string; auteur: string | null; lu: boolean; created_at: string }
-interface Annonce { id: number; titre: string; contenu: string | null; categorie: string | null; auteur: string | null; created_at: string }
+interface Annonce { id: number; titre: string; contenu: string | null; categorie: string | null; auteur: string | null; photos?: string[] | null; created_at: string }
 interface Coach { id: number; email: string; nom: string | null; role: string; created_at: string }
 
 type Onglet = "paiements" | "messages" | "annonces" | "comptes" | "coachs";
@@ -72,7 +72,7 @@ export default function EspaceParentsAdminPage() {
   const onglets: { id: Onglet; label: string; icon: typeof Upload; badge?: number }[] = [
     { id: "paiements", label: "Paiements", icon: Upload, badge: enAttente },
     { id: "messages", label: "Messages", icon: MessageCircle, badge: nonLus },
-    { id: "annonces", label: "Annonces", icon: Megaphone },
+    { id: "annonces", label: "Annonces / Photos", icon: Megaphone },
     { id: "comptes", label: "Comptes parents", icon: Users },
     { id: "coachs", label: "Coachs", icon: UserCog },
   ];
@@ -387,37 +387,98 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
 
 // ======================= ANNONCES =======================
 
+const MAX_PHOTOS_ANNONCE = 6;
+
 function OngletAnnonces({ annonces, moi, onMaj }: { annonces: Annonce[]; moi: string | null; onMaj: () => Promise<void> }) {
   const [titre, setTitre] = useState("");
   const [contenu, setContenu] = useState("");
   const [categorie, setCategorie] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
   const [envoi, setEnvoi] = useState(false);
+  const [preparation, setPreparation] = useState(false);
+  const inputPhotos = useRef<HTMLInputElement>(null);
+
+  // Photos choisies dans la galerie (ou prises avec l'appareil), compressées avant l'envoi
+  async function choisirPhotos(ev: React.ChangeEvent<HTMLInputElement>) {
+    const fichiers = Array.from(ev.target.files || []).slice(0, MAX_PHOTOS_ANNONCE - photos.length);
+    ev.target.value = "";
+    if (fichiers.length === 0) return;
+    setPreparation(true);
+    try {
+      const prets = await Promise.all(fichiers.map(f => imageEnDataUrl(f, 1400)));
+      setPhotos(p => [...p, ...prets].slice(0, MAX_PHOTOS_ANNONCE));
+    } catch {
+      alert("Une des photos n'a pas pu être lue.");
+    }
+    setPreparation(false);
+  }
 
   async function publier() {
-    if (!titre.trim()) return;
+    if (!titre.trim() && photos.length === 0) return;
     setEnvoi(true);
-    const { error } = await supabase.from("academy_annonces").insert({ titre: titre.trim(), contenu: contenu.trim() || null, categorie: categorie || null, auteur: moi });
-    if (error) alert(error.message); else { setTitre(""); setContenu(""); setCategorie(""); await onMaj(); }
+    try {
+      // Chaque photo est stockée dans la base et servie par /api/image/<id>
+      const urls: string[] = [];
+      for (const data of photos) {
+        const { data: img, error } = await supabase.from("academy_images").insert({ data }).select("id").single();
+        if (error) throw error;
+        urls.push(`/api/image/${(img as { id: string }).id}`);
+      }
+      const { error } = await supabase.from("academy_annonces").insert({
+        titre: titre.trim() || (urls.length > 1 ? "Nouvelles photos" : "Nouvelle photo"),
+        contenu: contenu.trim() || null, categorie: categorie || null, auteur: moi, photos: urls,
+      });
+      if (error) throw error;
+      setTitre(""); setContenu(""); setCategorie(""); setPhotos([]);
+      await onMaj();
+    } catch (e) {
+      alert("Publication impossible : " + (e instanceof Error ? e.message : (e as { message?: string })?.message || String(e)));
+    }
     setEnvoi(false);
   }
 
-  async function supprimer(id: number) {
+  async function supprimer(a: Annonce) {
     if (!confirm("Supprimer cette annonce ?")) return;
-    await supabase.from("academy_annonces").delete().eq("id", id);
+    await supabase.from("academy_annonces").delete().eq("id", a.id);
+    const ids = (a.photos || []).map(u => u.split("/api/image/")[1]).filter(Boolean);
+    if (ids.length) await supabase.from("academy_images").delete().in("id", ids);
     await onMaj();
   }
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       <div className="flex flex-col gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-4">
-        <input value={titre} onChange={e => setTitre(e.target.value)} placeholder="Titre (ex : Pas d'entraînement vendredi)" className={champ} />
+        <input value={titre} onChange={e => setTitre(e.target.value)} placeholder="Titre (ex : Pas d'entraînement vendredi, Photos du match…)" className={champ} />
         <textarea value={contenu} onChange={e => setContenu(e.target.value)} rows={3} placeholder="Détails (facultatif)" className={cn(champ, "resize-none")} />
+
+        <input ref={inputPhotos} type="file" accept="image/*" multiple className="hidden" onChange={choisirPhotos} />
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {photos.map((p, i) => (
+              <div key={i} className="relative aspect-square overflow-hidden rounded-md bg-black">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p} alt="" className="h-full w-full object-cover" />
+                <button onClick={() => setPhotos(ph => ph.filter((_, j) => j !== i))} className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white" aria-label="Retirer la photo">
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {photos.length < MAX_PHOTOS_ANNONCE && (
+          <button onClick={() => inputPhotos.current?.click()} disabled={preparation}
+            className="flex items-center justify-center gap-2 rounded-md border border-dashed border-white/15 py-3 text-sm text-white/60 hover:bg-white/[0.03]">
+            {preparation ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+            {photos.length ? "Ajouter d'autres photos" : "Ajouter des photos (galerie ou appareil photo)"}
+          </button>
+        )}
+
         <div className="flex gap-2">
           <select value={categorie} onChange={e => setCategorie(e.target.value)} className={cn(champ, "bg-[#1a1a1a]")}>
             <option value="">Tous les parents</option>
             {ACADEMY_CATEGORIES.map(c => <option key={c} value={c}>Parents {c}</option>)}
           </select>
-          <button onClick={publier} disabled={envoi || !titre.trim()} className="flex shrink-0 items-center gap-2 rounded-md bg-fiver-green px-5 text-sm font-bold text-fiver-black disabled:opacity-40">
+          <button onClick={publier} disabled={envoi || preparation || (!titre.trim() && photos.length === 0)} className="flex shrink-0 items-center gap-2 rounded-md bg-fiver-green px-5 text-sm font-bold text-fiver-black disabled:opacity-40">
             {envoi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Megaphone className="h-4 w-4" />} Publier
           </button>
         </div>
@@ -427,9 +488,17 @@ function OngletAnnonces({ annonces, moi, onMaj }: { annonces: Annonce[]; moi: st
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-white">{a.titre}</p>
             {a.contenu && <p className="mt-1 whitespace-pre-line text-sm text-white/60">{a.contenu}</p>}
+            {!!a.photos?.length && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {a.photos.map(u => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="" className="h-16 w-16 rounded-md object-cover" /></a>
+                ))}
+              </div>
+            )}
             <p className="mt-1 text-xs text-white/30">{new Date(a.created_at).toLocaleDateString("fr-FR")} · {a.categorie ? `Parents ${a.categorie}` : "Tous les parents"}{a.auteur ? ` · ${a.auteur}` : ""}</p>
           </div>
-          <button onClick={() => supprimer(a.id)} className="p-1 text-red-400/50 hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
+          <button onClick={() => supprimer(a)} className="p-1 text-red-400/50 hover:text-red-400" aria-label="Supprimer l'annonce"><Trash2 className="h-4 w-4" /></button>
         </div>
       ))}
     </div>

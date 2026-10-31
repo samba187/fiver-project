@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ACADEMY_CATEGORIES, debutSaison, currentMonthStr, mensualiteFiche } from "@/lib/academy";
+import { ACADEMY_CATEGORIES, debutSaison, currentMonthStr, mensualiteFiche, estArrete } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 
 type Paiement = { mois_concerne: string; montant: number; moyen_paiement?: string | null; date_paiement?: string };
@@ -62,6 +62,8 @@ export function TabDashboard({
     const anciens = registrations.filter(r => r.deja_inscrit).length;
     const football = registrations.filter(r => r.football).length;
     const loisirs = registrations.filter(r => r.centre_loisirs).length;
+    const coran = registrations.filter(r => r.coran).length;
+    const arretes = registrations.filter(r => estArrete(r)).length;
     const garcons = registrations.filter(r => r.sexe === "M").length;
     const filles = registrations.filter(r => r.sexe === "F").length;
     const autresCats = Array.from(new Set(registrations.map(r => r.categorie_foot || "").filter(c => c && !ACADEMY_CATEGORIES.includes(c))));
@@ -120,7 +122,7 @@ export function TabDashboard({
     const moisEnCours = estSaisonCourante ? lignes.find(l => l.month === moisActuel) : undefined;
 
     return {
-      total, anciens, nouveaux: total - anciens, football, loisirs, garcons, filles, byCat,
+      total, anciens, nouveaux: total - anciens, football, loisirs, coran, arretes, garcons, filles, byCat,
       lignes, du, recu, reste, avance, taux: du > 0 ? (recu / du) * 100 : 0,
       fraisPrevu, fraisEncaisse, fraisReste, nbFraisPayes,
       parMoyen: Object.entries(parMoyen).sort((a, b) => b[1] - a[1]),
@@ -160,6 +162,8 @@ export function TabDashboard({
             { label: "Anciens (réinscrits)", val: stats.anciens, cls: "text-amber-400" },
             { label: "Football", val: stats.football, cls: "text-white/80" },
             { label: "Loisirs", val: stats.loisirs, cls: "text-white/80" },
+            ...(stats.coran > 0 ? [{ label: "Coran", val: stats.coran, cls: "text-white/80" }] : []),
+            ...(stats.arretes > 0 ? [{ label: "Arrêtés", val: stats.arretes, cls: "text-red-400" }] : []),
             { label: "Garçons", val: stats.garcons, cls: "text-blue-300" },
             { label: "Filles", val: stats.filles, cls: "text-pink-400" },
           ].map(k => (

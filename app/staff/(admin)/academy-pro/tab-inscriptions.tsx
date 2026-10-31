@@ -2,11 +2,11 @@
 
 import { useMemo, useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2, History, IdCard, Download } from "lucide-react";
+import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap, Pencil, MessageCircle, Printer, Loader2, CheckSquare, Square, Calendar, Trash2, History, IdCard, Download, UserMinus, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, anneesCategorie, categorieParNaissance, debutSaison, mensualiteFiche } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, anneesCategorie, categorieParNaissance, debutSaison, mensualiteFiche, estArrete, moisArret, currentMonthStr, TARIF_CORAN_DEFAUT } from "@/lib/academy";
 import { RecuAcademy, lignesRecu, libelleLigneMois, recuEnPdf } from "@/components/academy/recu-academy";
 import type { Registration, Tarifs } from "./page";
 import { ImportInscritsModal } from "./import-inscrits";
@@ -26,6 +26,11 @@ function calcAge(dob: string | null) {
   if (!dob) return null;
   const diff = Date.now() - new Date(dob).getTime();
   return Math.floor(diff / 31557600000);
+}
+
+function libelleMoisCourt(mois: string) {
+  const [a, m] = mois.split("-");
+  return `${ALL_MONTHS.find(x => x.val === m)?.label || m} ${a}`;
 }
 
 function formatPhone(phone: string | null) {
@@ -55,6 +60,11 @@ export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifM
     if (createdMonthStr === evalMonth) {
       return { label: "🆕 Mois offert", cls: "text-blue-400 font-medium", badgeCls: "bg-blue-500/10 text-blue-400", status: "offert" };
     }
+  }
+
+  // Enfant arrêté en cours de saison : plus rien à réclamer
+  if (estArrete(r, evalMonth)) {
+    return { label: "⛔ Arrêté", cls: "text-red-400 font-medium", badgeCls: "bg-red-500/10 text-red-400", status: "offert" };
   }
 
   const history = r.academy_payments_history || [];
@@ -89,6 +99,7 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
   deja_inscrit: false, autorisation_sortie: null, autorisation_photos: true, saison: null, badge_code: null,
+  coran: false,
 });
 
 type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code" | "photo_url" | "autorisation_sortie">;
@@ -120,6 +131,14 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
   const [monthChoiceOpen, setMonthChoiceOpen] = useState(false);
   const [monthChoicePlayer, setMonthChoicePlayer] = useState<Registration | null>(null);
   const [monthChoiceMonth, setMonthChoiceMonth] = useState<string | null>(null);
+
+  // Retrait d'un enfant
+  const [retrait, setRetrait] = useState<Registration | null>(null);
+  const [retraitMode, setRetraitMode] = useState<"arret" | "pause" | "reactiver">("arret");
+  const [retraitMois, setRetraitMois] = useState("");
+  const [retraitMotif, setRetraitMotif] = useState("");
+  const [pauseMois, setPauseMois] = useState<string[]>([]);
+  const [retraitEnCours, setRetraitEnCours] = useState(false);
 
   // Invoice Modal State
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -153,7 +172,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
         const cat = categorieParNaissance(next.date_naissance, next.sexe === "F", next.saison || saison);
         if (cat) next.categorie_foot = cat;
       }
-      if (updates.football !== undefined || updates.centre_loisirs !== undefined || next.categorie_foot !== prev.categorie_foot) {
+      if (updates.football !== undefined || updates.centre_loisirs !== undefined || updates.coran !== undefined || next.categorie_foot !== prev.categorie_foot) {
         next.tarif_total = mensualiteFiche(next, tarifs);
       }
       if (updates.deja_inscrit !== undefined) {
@@ -304,6 +323,40 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     setMonthChoicePlayer(r);
     setMonthChoiceMonth(monthStr);
     setMonthChoiceOpen(true);
+  }
+
+  // ====== RETRAIT D'UN ENFANT (pause = mois OFF, ou arrêt définitif) ======
+  function ouvrirRetrait(r: Registration) {
+    setRetrait(r);
+    setRetraitMode(moisArret(r) ? "reactiver" : "arret");
+    const actuel = currentMonthStr();
+    setRetraitMois(moisSaison.includes(actuel) ? actuel : moisSaison[0] || actuel);
+    setRetraitMotif("");
+    setPauseMois([]);
+  }
+
+  async function validerRetrait() {
+    if (!retrait) return;
+    setRetraitEnCours(true);
+    let error = null;
+    if (retraitMode === "arret") {
+      ({ error } = await supabase.from("academy_registrations")
+        .update({ statut_inscription: "arrete", date_arret: `${retraitMois}-01`, motif_arret: retraitMotif.trim() || null })
+        .eq("id", retrait.id));
+    } else if (retraitMode === "reactiver") {
+      ({ error } = await supabase.from("academy_registrations")
+        .update({ statut_inscription: "actif", date_arret: null, motif_arret: null })
+        .eq("id", retrait.id));
+    } else if (pauseMois.length > 0) {
+      ({ error } = await supabase.from("academy_payments_history").insert(pauseMois.map(m => ({
+        registration_id: retrait.id, mois_concerne: m, montant: 0, moyen_paiement: "OFF",
+        description: "Mois non inscrit (pause)", date_paiement: new Date().toISOString(),
+      }))));
+    }
+    setRetraitEnCours(false);
+    if (error) { alert("Enregistrement impossible : " + error.message); return; }
+    setRetrait(null);
+    onRefresh();
   }
 
   async function setMonthOff(r: Registration, monthStr: string) {
@@ -539,7 +592,10 @@ Merci de votre confiance !`;
       )}
 
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm text-white/40">{filtered.length} inscrit(s)</p>
+        <p className="text-sm text-white/40">
+          {filtered.length} inscrit(s)
+          {filtered.some(r => estArrete(r)) && <span className="text-red-400"> · dont {filtered.filter(r => estArrete(r)).length} arrêté(s)</span>}
+        </p>
       </div>
 
       {registrations.length === 0 && !archive && (
@@ -578,7 +634,7 @@ Merci de votre confiance !`;
             {filtered.map(r => {
               const age = calcAge(r.date_naissance);
               return (
-                <tr key={r.id} className={cn("group border-b border-white/5 transition-all hover:bg-white/[0.04]")}>
+                <tr key={r.id} className={cn("group border-b border-white/5 transition-all", estArrete(r) ? "bg-red-500/[0.07] hover:bg-red-500/[0.1]" : "hover:bg-white/[0.04]")}>
                   <td className="px-3 py-3">
                     <div className="h-9 w-9 overflow-hidden rounded-full border border-white/10 bg-white/5 flex items-center justify-center relative">
                       {r.photo_url ? (
@@ -589,9 +645,15 @@ Merci de votre confiance !`;
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <p className="text-sm font-bold text-white transition-colors">
+                    <p className={cn("text-sm font-bold transition-colors", estArrete(r) ? "text-red-300" : "text-white")}>
                       {r.prenom} {r.nom_pere ? r.nom_pere + " " : ""}{r.nom}
+                      {r.coran && <span className="ml-1.5 rounded bg-white/5 px-1.5 py-0.5 align-middle text-[9px] font-bold text-white/50">📖 CORAN</span>}
                     </p>
+                    {moisArret(r) && (
+                      <p className="mt-0.5 text-[10px] font-bold uppercase text-red-400">
+                        {estArrete(r) ? "Arrêté" : "Arrête"} depuis {libelleMoisCourt(moisArret(r)!)}{r.motif_arret ? ` · ${r.motif_arret}` : ""}
+                      </p>
+                    )}
                     <p className="text-[11px] text-white/30 mt-0.5">{r.telephone_parent || "—"}</p>
                   </td>
                   <td className="px-3 py-3 text-xs text-white/50">{age ? `${age}a` : "—"}</td>
@@ -622,14 +684,14 @@ Merci de votre confiance !`;
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
                           partiel: "bg-amber-500 text-black hover:brightness-110",
                           non_paye: "bg-white/5 text-white/30 hover:bg-white/10 border border-white/5",
-                          off: "bg-white/[0.02] text-white/15 line-through border border-dashed border-white/10 hover:border-white/20"
+                          off: "bg-red-500/15 text-red-300 border border-red-500/40 hover:bg-red-500/25"
                         };
                         return (
                           <button
                             key={monthStr}
                             onClick={(e) => { e.stopPropagation(); openMonthChoice(r, monthStr); }}
                             className={cn("h-6 w-8 text-[9px] font-bold rounded flex items-center justify-center transition-all", colors[status])}
-                            title={`${m.label} ${annee}`}
+                            title={`${m.label} ${annee}${status === "off" ? (estArrete(r, monthStr) ? " — arrêté" : " — OFF") : ""}`}
                           >
                             {m.label}
                           </button>
@@ -672,6 +734,13 @@ Merci de votre confiance !`;
                         title="Générer Facture WhatsApp"
                       >
                         <Printer className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); ouvrirRetrait(r); }}
+                        className={cn("rounded-md p-1.5 transition-colors", moisArret(r) ? "text-red-400 hover:bg-red-500/10" : "text-white/20 hover:bg-white/5 hover:text-white/60")}
+                        title={moisArret(r) ? "Enfant arrêté — réactiver" : "Retirer l'enfant (pause ou arrêt)"}
+                      >
+                        {moisArret(r) ? <UserCheck className="h-4 w-4" /> : <UserMinus className="h-4 w-4" />}
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); openEdit(r); }}
@@ -784,6 +853,77 @@ Merci de votre confiance !`;
           </div>
         );
       })()}
+
+      {/* ====== RETRAIT D'UN ENFANT ====== */}
+      {retrait && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setRetrait(null)}>
+          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#121212] p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <p className="text-lg font-bold text-white">{retrait.prenom} {retrait.nom}</p>
+                <p className="text-xs text-white/40">{retrait.categorie_foot || "—"} · saison {saison}</p>
+              </div>
+              <button onClick={() => setRetrait(null)} className="text-white/30 hover:text-white"><XIcon className="h-5 w-5" /></button>
+            </div>
+
+            {moisArret(retrait) ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                Arrêté depuis {libelleMoisCourt(moisArret(retrait)!)}{retrait.motif_arret ? ` — ${retrait.motif_arret}` : ""}.
+                <p className="mt-1 text-xs text-red-200/70">Son historique et ses paiements sont conservés.</p>
+              </div>
+            ) : (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                {([["arret", "Arrêt définitif"], ["pause", "Pause (mois OFF)"]] as const).map(([m, l]) => (
+                  <button key={m} onClick={() => setRetraitMode(m)}
+                    className={cn("rounded-lg border px-3 py-2.5 text-sm font-bold", retraitMode === m ? "border-red-500/60 bg-red-500/15 text-red-200" : "border-white/10 text-white/50")}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {retraitMode === "arret" && !moisArret(retrait) && (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-white/50">L&apos;enfant ne paie plus rien à partir du mois choisi. Il reste dans la liste (en rouge) avec tout son historique, mais n&apos;apparaît plus chez les coachs ni dans les rappels.</p>
+                <label className="text-xs font-bold uppercase tracking-wide text-white/40">Arrête à partir de</label>
+                <select value={retraitMois} onChange={e => setRetraitMois(e.target.value)} className={inputClass}>
+                  {moisSaison.map(m => <option key={m} value={m} className="bg-[#1a1a1a]">{libelleMoisCourt(m)}</option>)}
+                </select>
+                <input value={retraitMotif} onChange={e => setRetraitMotif(e.target.value)} placeholder="Motif (facultatif) : déménagement, autre club…" className={inputClass} />
+              </div>
+            )}
+
+            {retraitMode === "pause" && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-white/50">Mois où l&apos;enfant ne vient pas (rien à payer). Les mois déjà payés ne sont pas proposés.</p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {moisSaison.map(m => {
+                    const st = getMonthStatus(retrait, m, mensualiteFiche(retrait, tarifs));
+                    const choisi = pauseMois.includes(m);
+                    const bloque = st !== "non_paye";
+                    return (
+                      <button key={m} disabled={bloque} onClick={() => setPauseMois(p => choisi ? p.filter(x => x !== m) : [...p, m])}
+                        className={cn("rounded-md py-2 text-xs font-bold", bloque ? (st === "off" ? "bg-red-500/15 text-red-300/60" : "bg-white/[0.02] text-white/15") : choisi ? "bg-red-500 text-white" : "bg-white/5 text-white/60")}>
+                        {libelleMoisCourt(m).replace(/ 20/, " ")}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={validerRetrait}
+              disabled={retraitEnCours || (retraitMode === "pause" && pauseMois.length === 0)}
+              className={cn("mt-5 flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold disabled:opacity-40",
+                retraitMode === "reactiver" ? "bg-fiver-green text-fiver-black" : "bg-red-500 text-white")}
+            >
+              {retraitEnCours && <Loader2 className="h-4 w-4 animate-spin" />}
+              {retraitMode === "reactiver" ? "Réactiver l'enfant" : retraitMode === "arret" ? "Confirmer l'arrêt" : `Mettre ${pauseMois.length || ""} mois en OFF`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ====== MONTH CHOICE MODAL (Encaisser vs OFF) ====== */}
       {monthChoiceOpen && monthChoicePlayer && monthChoiceMonth && (() => {
@@ -1035,6 +1175,11 @@ Merci de votre confiance !`;
                       <label className={cn("flex cursor-pointer items-center rounded-lg border p-4 transition-colors", form.centre_loisirs ? "border-fiver-green bg-fiver-green/5" : "border-white/10 bg-white/[0.02] hover:border-white/20")}>
                         <input type="checkbox" checked={form.centre_loisirs} onChange={e => handleFormChange({ centre_loisirs: e.target.checked })} className="h-5 w-5 accent-fiver-green cursor-pointer mr-3" />
                         <span className="font-bold text-white">🎯 Centre de Loisirs</span>
+                      </label>
+                      <label className={cn("flex cursor-pointer items-center rounded-lg border p-4 transition-colors sm:col-span-2", form.coran ? "border-fiver-green bg-fiver-green/5" : "border-white/10 bg-white/[0.02] hover:border-white/20")}>
+                        <input type="checkbox" checked={!!form.coran} onChange={e => handleFormChange({ coran: e.target.checked })} className="h-5 w-5 accent-fiver-green cursor-pointer mr-3" />
+                        <span className="font-bold text-white">📖 Cours de Coran</span>
+                        <span className="ml-auto text-xs font-semibold text-fiver-green">+{(tarifs.tarifCoran ?? TARIF_CORAN_DEFAUT).toLocaleString("fr-FR")} MRU / mois</span>
                       </label>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

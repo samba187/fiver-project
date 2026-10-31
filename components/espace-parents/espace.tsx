@@ -12,7 +12,7 @@ import {
   type DonneesParent, type EnfantParent, type StatutMois, type Vus,
 } from "@/lib/parents";
 import {
-  currentMonthStr, moisDeSaison, seancesEntre, dateLocale, decalerJours, JOURS_LONGS,
+  currentMonthStr, moisDeSaison, seancesEntre, dateLocale, decalerJours, estArrete, JOURS_LONGS,
 } from "@/lib/academy";
 import { RecuAcademy, lignesRecu, recuEnPdf } from "@/components/academy/recu-academy";
 
@@ -27,6 +27,7 @@ const STYLE_STATUT: Record<StatutMois, { carte: string; texte: string }> = {
   retard: { carte: "border-red-500/30 bg-red-500/10", texte: "text-red-300" },
   avant_saison: { carte: "border-white/10 bg-white/[0.04]", texte: "text-white/40" },
   en_verification: { carte: "border-sky-400/30 bg-sky-400/10", texte: "text-sky-300" },
+  arrete: { carte: "border-red-500/30 bg-red-500/10", texte: "text-red-300" },
 };
 
 function moisSuivant(mois: string) {
@@ -98,7 +99,7 @@ export function EspaceParent({ donnees, onRecharger, onDeconnexion }: { donnees:
       {vue === "paiement" && enfant && <VuePaiement donnees={donnees} enfant={enfant} onRetour={retour} onRecharger={onRecharger} />}
       {vue === "factures" && enfant && <VueFactures enfant={enfant} onRetour={retour} />}
       {vue === "entrainements" && enfant && <VueEntrainements donnees={donnees} enfant={enfant} onRetour={retour} onRecharger={onRecharger} />}
-      {vue === "photos" && enfant && <VuePhotos enfant={enfant} onRetour={retour} onRecharger={onRecharger} />}
+      {vue === "photos" && enfant && <VuePhotos donnees={donnees} enfant={enfant} onRetour={retour} onRecharger={onRecharger} />}
       {vue === "suivi" && enfant && <VueSuivi donnees={donnees} enfant={enfant} onRetour={retour} />}
       {vue === "messages" && <VueMessages donnees={donnees} onRetour={retour} onRecharger={onRecharger} />}
     </div>
@@ -242,7 +243,9 @@ function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnonces
                 <p className="truncate text-lg font-bold text-white">{enfant.prenom} {enfant.nom}</p>
                 <p className="text-sm text-white/50">Catégorie {enfant.categorie_foot || "—"} · Saison {enfant.saison}</p>
               </div>
-              <span className="rounded-full bg-fiver-green/15 px-3 py-1 text-xs font-bold text-fiver-green">Inscrit</span>
+              {estArrete(enfant)
+                ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-bold text-red-300">Arrêté</span>
+                : <span className="rounded-full bg-fiver-green/15 px-3 py-1 text-xs font-bold text-fiver-green">Inscrit</span>}
             </div>
             {erreurPhoto && <p className="mt-2 text-xs text-red-300">{erreurPhoto}</p>}
           </div>
@@ -311,6 +314,7 @@ function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnonces
                   {annoncesNeuves.some(n => n.id === a.id) && <span className="ml-2 rounded-full bg-red-500 px-1.5 py-0.5 align-middle text-[10px] font-bold text-white">Nouveau</span>}
                 </p>
                 {a.contenu && <p className="mt-0.5 whitespace-pre-line text-sm text-white/60">{a.contenu}</p>}
+                {!!a.photos?.length && <PhotosAnnonce photos={a.photos} />}
                 <p className="mt-1 text-[11px] text-white/30">{new Date(a.created_at).toLocaleDateString("fr-FR")}{a.categorie ? ` · ${a.categorie}` : ""}</p>
               </div>
             ))}
@@ -710,7 +714,21 @@ function VueEntrainements({ donnees, enfant, onRetour, onRecharger }: { donnees:
 
 // ======================= PHOTOS =======================
 
-function VuePhotos({ enfant, onRetour, onRecharger }: { enfant: EnfantParent; onRetour: () => void; onRecharger: () => Promise<void> }) {
+function PhotosAnnonce({ photos }: { photos: string[] }) {
+  return (
+    <div className={cn("mt-2 grid gap-1.5", photos.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+      {photos.map(url => (
+        <a key={url} href={url} target="_blank" rel="noreferrer" className={cn("overflow-hidden rounded-xl bg-white/5", photos.length === 1 ? "aspect-video" : "aspect-square")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt="" className="h-full w-full object-cover" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function VuePhotos({ donnees, enfant, onRetour, onRecharger }: { donnees: DonneesParent; enfant: EnfantParent; onRetour: () => void; onRecharger: () => Promise<void> }) {
+  const groupe = donnees.annonces.filter(a => a.photos?.length);
   const [maj, setMaj] = useState(false);
   async function basculer() {
     setMaj(true);
@@ -745,6 +763,20 @@ function VuePhotos({ enfant, onRetour, onRecharger }: { enfant: EnfantParent; on
             </a>
           ))}
         </div>
+      )}
+      {groupe.length > 0 && (
+        <>
+          <h3 className="mb-2 mt-6 text-sm font-bold uppercase tracking-wide text-white/60">Photos de l&apos;académie</h3>
+          <div className="flex flex-col gap-4">
+            {groupe.map(a => (
+              <div key={a.id}>
+                <p className="text-sm font-semibold text-white">{a.titre}</p>
+                <p className="text-[11px] text-white/30">{new Date(a.created_at).toLocaleDateString("fr-FR")}{a.categorie ? ` · ${a.categorie}` : ""}</p>
+                <PhotosAnnonce photos={a.photos || []} />
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </>
   );

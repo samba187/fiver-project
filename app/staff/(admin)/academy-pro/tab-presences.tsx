@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { UserCheck, Search, Loader2, CalendarDays, User, AlertTriangle, Check } from "lucide-react";
+import { UserCheck, Search, Loader2, CalendarDays, User, AlertTriangle, Check, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import type { Registration } from "./page";
+import { TableauPresences } from "./tableau-presences";
 
 interface Presence {
   id: number;
@@ -31,7 +32,7 @@ function todayStr() {
 }
 
 export function TabPresences({ registrations, saison }: { registrations: Registration[]; saison: string }) {
-  const [mode, setMode] = useState<"jour" | "enfant">("jour");
+  const [mode, setMode] = useState<"tableau" | "jour" | "enfant">("tableau");
   const [date, setDate] = useState(todayStr());
   const [search, setSearch] = useState("");
   const [selectedChild, setSelectedChild] = useState<Registration | null>(null);
@@ -93,21 +94,31 @@ export function TabPresences({ registrations, saison }: { registrations: Registr
         </div>
         <div className="flex gap-1 rounded-sm border border-white/5 bg-white/[0.02] p-1">
           <button
+            onClick={() => setMode("tableau")}
+            className={cn("flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+              mode === "tableau" ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}
+          >
+            <Table2 className="h-3.5 w-3.5" /> Tableau
+          </button>
+          <button
             onClick={() => { setMode("jour"); setSelectedChild(null); }}
             className={cn("flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
               mode === "jour" ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}
           >
-            <CalendarDays className="h-3.5 w-3.5" /> Par jour
+            <CalendarDays className="h-3.5 w-3.5" /> Scans du jour
           </button>
           <button
             onClick={() => setMode("enfant")}
             className={cn("flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
               mode === "enfant" ? "bg-fiver-green text-fiver-black" : "text-white/40 hover:text-white/70")}
           >
-            <User className="h-3.5 w-3.5" /> Par enfant
+            <User className="h-3.5 w-3.5" /> Scans par enfant
           </button>
         </div>
       </div>
+
+      {/* ===== TABLEAU : présences et absences de toutes les séances ===== */}
+      {mode === "tableau" && <TableauPresences registrations={registrations} />}
 
       {/* ===== MODE PAR JOUR ===== */}
       {mode === "jour" && (

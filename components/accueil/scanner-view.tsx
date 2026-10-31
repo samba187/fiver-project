@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, mensualiteFiche, type MonthStatus, type TarifsMensuels } from "@/lib/academy";
+import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, mensualiteFiche, estArrete, type MonthStatus, type TarifsMensuels } from "@/lib/academy";
 
 interface ScanRegistration {
   id: number;
@@ -21,11 +21,14 @@ interface ScanRegistration {
   football: boolean;
   centre_loisirs: boolean;
   autorisation_sortie: boolean | null;
+  coran?: boolean | null;
+  statut_inscription?: string | null;
+  date_arret?: string | null;
   academy_payments_history?: { mois_concerne: string; montant: number; moyen_paiement?: string | null }[];
 }
 
 type ScanResult =
-  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; enDelai?: boolean; avantSaison?: boolean; derniereVenue?: string | null }
+  | { kind: "ok"; reg: ScanRegistration; statut: MonthStatus; pending: boolean; enDelai?: boolean; avantSaison?: boolean; arrete?: boolean; derniereVenue?: string | null }
   | { kind: "deja_scanne"; reg: ScanRegistration; heure: string }
   | { kind: "autre_saison"; nom: string; saison: string }
   | { kind: "inconnu"; code: string };
@@ -149,14 +152,14 @@ export default function ScannerView() {
     if (tarifData?.value) {
       try {
         const t = JSON.parse(tarifData.value);
-        tarifsRef.current = { tarifFoot: t.tarifFoot || 0, tarifLoisirs: t.tarifLoisirs || 0, tarifCombo: t.tarifCombo || 0, tarifsCategorie: t.tarifsCategorie || {} };
+        tarifsRef.current = { tarifFoot: t.tarifFoot || 0, tarifLoisirs: t.tarifLoisirs || 0, tarifCombo: t.tarifCombo || 0, tarifsCategorie: t.tarifsCategorie || {}, tarifCoran: t.tarifCoran };
         if (t.jourLimitePaiement) jourLimiteRef.current = t.jourLimitePaiement;
       } catch {}
     }
 
     const { data } = await supabase
       .from("academy_registrations")
-      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
+      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
       .eq("saison", courante);
 
     const list = (data as ScanRegistration[]) || [];
@@ -324,6 +327,15 @@ export default function ScannerView() {
     // Saison lancée en avance (ex : le 30 septembre) : rien à payer avant son premier mois
     const debut = debutSaison(saisonRef.current);
     const avantSaison = !!debut && currentMonthStr() < debut;
+    // Enfant qui a arrêté : on bloque, l'agent décide
+    if (estArrete(reg)) {
+      busyRef.current = true;
+      beep(240, 0.35);
+      navigator.vibrate?.([100, 60, 100]);
+      setResult({ kind: "ok", reg, statut: "non_paye", pending: true, arrete: true });
+      chargerDerniereVenue(code);
+      return;
+    }
     const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), mensualiteFiche(reg, tarifsRef.current) || undefined);
     const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
     const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
@@ -648,7 +660,8 @@ export default function ScannerView() {
                 tone === "ok" ? "bg-fiver-green text-fiver-black" : tone === "warn" ? "bg-amber-400 text-black" : "bg-red-500 text-white"
               )}>
                 {tone === "ok" ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-                {result.avantSaison ? `Saison ${saison} — pas encore commencée`
+                {result.arrete ? "Inscription arrêtée"
+                  : result.avantSaison ? `Saison ${saison} — pas encore commencée`
                   : result.enDelai ? `Mois pas encore payé — jusqu'au ${jourLimiteRef.current}`
                   : STATUT_UI[result.statut].label}
               </div>

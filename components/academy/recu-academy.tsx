@@ -22,6 +22,7 @@ export interface JoueurRecu {
   centre_loisirs?: boolean | null;
   categorie_foot?: string | null;
   photo_url?: string | null;
+  coran?: boolean | null;
 }
 
 interface FicheRecu {
@@ -127,9 +128,11 @@ export function RecuAcademy({ joueur, lignes }: { joueur: JoueurRecu; lignes: Li
           <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 14, borderBottom: "1px solid #eee" }}>
             <span style={{ color: "#666" }}>Prestation(s) :</span>
             <span style={{ fontWeight: 700 }}>
-              {joueur.football && `⚽ Football Academy${joueur.categorie_foot ? ` (${joueur.categorie_foot})` : ""}`}
-              {joueur.football && joueur.centre_loisirs && " + "}
-              {joueur.centre_loisirs && "🎨 Centre Loisirs"}
+              {[
+                joueur.football && `⚽ Football Academy${joueur.categorie_foot ? ` (${joueur.categorie_foot})` : ""}`,
+                joueur.centre_loisirs && "🎨 Centre Loisirs",
+                joueur.coran && "📖 Coran",
+              ].filter(Boolean).join(" + ")}
             </span>
           </div>
         </div>

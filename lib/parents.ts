@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import {
-  getMonthStatus, mensualiteFiche, debutSaison, currentMonthStr, lirePlanning,
+  getMonthStatus, mensualiteFiche, debutSaison, currentMonthStr, lirePlanning, estArrete,
   type MonthStatus, type PlanningAcademy, type TarifsMensuels,
 } from "@/lib/academy";
 
@@ -21,7 +21,8 @@ export interface SeanceParent { date: string; reponse: "present" | "absent" | nu
 
 export interface EnfantParent {
   id: number; nom: string; prenom: string; date_naissance: string | null; sexe: string; telephone_parent: string | null;
-  categorie_foot: string | null; football: boolean; centre_loisirs: boolean;
+  categorie_foot: string | null; football: boolean; centre_loisirs: boolean; coran?: boolean;
+  statut_inscription?: string | null; date_arret?: string | null;
   photo_url: string | null; badge_code: string | null; saison: string; created_at: string;
   tarif_total: number; frais_inscription: number; frais_inscription_paye: boolean; inscription_fin_de_mois: boolean;
   autorisation_photos: boolean; autorisation_sortie: boolean | null;
@@ -33,7 +34,7 @@ export interface EnfantParent {
   scans: string[];
 }
 
-export interface AnnonceParent { id: number; titre: string; contenu: string | null; categorie: string | null; created_at: string }
+export interface AnnonceParent { id: number; titre: string; contenu: string | null; categorie: string | null; photos?: string[] | null; created_at: string }
 export interface MessageParent { id: number; sens: "parent" | "academie"; contenu: string; auteur: string | null; lu: boolean; created_at: string }
 
 export interface DonneesParent {
@@ -128,7 +129,7 @@ export async function imageEnDataUrl(file: File, maxSize = 1000) {
 
 // ---------- Paiements ----------
 
-export type StatutMois = "paye" | "partiel" | "a_payer" | "retard" | "offert" | "a_venir" | "avant_saison" | "en_verification";
+export type StatutMois = "paye" | "partiel" | "a_payer" | "retard" | "offert" | "a_venir" | "avant_saison" | "en_verification" | "arrete";
 
 /** Lignes d'un dépôt : un ou plusieurs mois (ou les frais), chacun avec son montant. */
 export function lignesPreuve(p: Pick<PreuveParent, "mois_concerne" | "montant" | "details">): LignePreuve[] {
@@ -153,6 +154,7 @@ export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesP
   const paye = e.academy_payments_history.filter(h => h.mois_concerne === mois && h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
   const debut = debutSaison(e.saison);
   if (debut && mois < debut) return { statut: "avant_saison", du, paye };
+  if (estArrete(e, mois)) return { statut: "arrete", du, paye };
   if (e.inscription_fin_de_mois && currentMonthStr(new Date(e.created_at)) === mois) return { statut: "offert", du, paye };
   const s: MonthStatus = getMonthStatus(e, mois, du);
   if (s === "off") return { statut: "offert", du, paye };
@@ -169,7 +171,7 @@ export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesP
 
 export const LIBELLE_STATUT: Record<StatutMois, string> = {
   paye: "Payé", partiel: "Partiel", a_payer: "À payer", retard: "En retard",
-  offert: "Offert", a_venir: "À venir", avant_saison: "—", en_verification: "En vérification",
+  offert: "Offert", a_venir: "À venir", avant_saison: "—", en_verification: "En vérification", arrete: "Arrêté",
 };
 
 export function libelleMois(mois: string) {

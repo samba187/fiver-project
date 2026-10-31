@@ -58,6 +58,23 @@ export interface PaymentHistoryEntry {
 export interface AbonnementSource {
   tarif_total: number;
   academy_payments_history?: PaymentHistoryEntry[] | null;
+  statut_inscription?: string | null;
+  date_arret?: string | null;
+}
+
+// ---------- Enfant qui arrête en cours de saison ----------
+
+export interface FicheArret { statut_inscription?: string | null; date_arret?: string | null }
+
+/** Premier mois ("YYYY-MM") où l'enfant n'est plus inscrit, ou null s'il est actif. */
+export function moisArret(r: FicheArret): string | null {
+  return r.statut_inscription === "arrete" && r.date_arret ? r.date_arret.slice(0, 7) : null;
+}
+
+/** L'enfant a-t-il arrêté à ce mois-ci (par défaut le mois en cours) ? */
+export function estArrete(r: FicheArret, mois = currentMonthStr()): boolean {
+  const m = moisArret(r);
+  return !!m && mois >= m;
 }
 
 /**
@@ -65,6 +82,8 @@ export interface AbonnementSource {
  * il ne compte pas comme un encaissement.
  */
 export function getMonthStatus(r: AbonnementSource, monthStr: string, tarifMensuel?: number): MonthStatus {
+  // Enfant arrêté : plus rien à payer à partir de son mois d'arrêt
+  if (estArrete(r, monthStr)) return "off";
   const history = r.academy_payments_history || [];
   const allPayments = history.filter((h) => h.mois_concerne === monthStr);
 
@@ -140,12 +159,17 @@ export interface TarifsMensuels {
   tarifCombo: number;
   /** Mensualité football par catégorie (ex : U5, filles moins chers). Absent = tarifFoot. */
   tarifsCategorie?: Record<string, number>;
+  /** Supplément mensuel des cours de Coran. Absent = 300 MRU. */
+  tarifCoran?: number;
 }
+
+export const TARIF_CORAN_DEFAUT = 300;
 
 export interface FicheTarifable {
   football: boolean;
   centre_loisirs: boolean;
   categorie_foot: string | null;
+  coran?: boolean | null;
 }
 
 /** Mensualité due par une fiche, selon sa catégorie et ses prestations. */
@@ -154,10 +178,12 @@ export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels): number {
   const foot = prixCat && prixCat > 0 ? prixCat : t.tarifFoot;
   // Le combo garde la même remise que Foot + Loisirs au tarif standard
   const remiseCombo = Math.max(0, t.tarifFoot + t.tarifLoisirs - t.tarifCombo);
-  if (r.football && r.centre_loisirs) return Math.max(0, foot + t.tarifLoisirs - remiseCombo);
-  if (r.football) return foot;
-  if (r.centre_loisirs) return t.tarifLoisirs;
-  return 0;
+  let base = 0;
+  if (r.football && r.centre_loisirs) base = Math.max(0, foot + t.tarifLoisirs - remiseCombo);
+  else if (r.football) base = foot;
+  else if (r.centre_loisirs) base = t.tarifLoisirs;
+  // Cours de Coran : supplément ajouté à la mensualité
+  return base + (r.coran ? t.tarifCoran ?? TARIF_CORAN_DEFAUT : 0);
 }
 
 // ---------- Planning des entraînements ----------

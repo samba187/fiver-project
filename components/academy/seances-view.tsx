@@ -5,10 +5,10 @@ import { Loader2, Check, X as XIcon, ScanLine, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import {
-  categoriesPresentes, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
+  categoriesPresentes, estArrete, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
 } from "@/lib/academy";
 
-interface Joueur { id: number; nom: string; prenom: string; categorie_foot: string | null; photo_url: string | null; autorisation_sortie: boolean | null }
+interface Joueur { id: number; nom: string; prenom: string; categorie_foot: string | null; photo_url: string | null; autorisation_sortie: boolean | null; statut_inscription?: string | null; date_arret?: string | null }
 interface LignePresence { registration_id: number; reponse_parent: "present" | "absent" | null; presence_reelle: "present" | "absent" | null }
 
 function dateLongue(d: string) {
@@ -33,10 +33,11 @@ export function SeancesView() {
       const [saison, plan] = await Promise.all([fetchSaisonCourante(), fetchPlanning()]);
       const { data } = await supabase
         .from("academy_registrations")
-        .select("id, nom, prenom, categorie_foot, photo_url, autorisation_sortie")
+        .select("id, nom, prenom, categorie_foot, photo_url, autorisation_sortie, statut_inscription, date_arret")
         .eq("saison", saison)
         .order("prenom");
-      const liste = (data as Joueur[]) || [];
+      // Les enfants qui ont arrêté ne sont plus dans les séances
+      const liste = ((data as Joueur[]) || []).filter(j => !estArrete(j));
       setJoueurs(liste);
       setPlanning(plan);
       const cats = categoriesPresentes(liste.map(j => j.categorie_foot));

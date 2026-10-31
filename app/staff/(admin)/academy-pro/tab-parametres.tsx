@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Save, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { ACADEMY_CATEGORIES, JOURS_COURTS, fetchPlanning, type PlanningAcademy } from "@/lib/academy";
+import { ACADEMY_CATEGORIES, JOURS_COURTS, TARIF_CORAN_DEFAUT, fetchPlanning, type PlanningAcademy } from "@/lib/academy";
 import type { Tarifs } from "./page";
 import { NUMERO_PAIEMENT_DEFAUT } from "@/lib/parents";
 
@@ -58,7 +58,7 @@ export function TabParametres({ tarifs, setTarifs }: { tarifs: Tarifs; setTarifs
       {/* Tarification */}
       <div className="rounded-lg border border-white/5 bg-white/[0.02] p-5">
         <h2 className="mb-4 font-[var(--font-heading)] text-sm font-semibold uppercase tracking-wide text-white">💰 Mensualités</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Football (MRU)</label>
             <input type="number" value={tarifs.tarifFoot} onChange={e => setTarifs({ ...tarifs, tarifFoot: parseInt(e.target.value) || 0 })} className={inputClass} />
@@ -70,6 +70,10 @@ export function TabParametres({ tarifs, setTarifs }: { tarifs: Tarifs; setTarifs
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Combo Foot + Loisirs (MRU)</label>
             <input type="number" value={tarifs.tarifCombo} onChange={e => setTarifs({ ...tarifs, tarifCombo: parseInt(e.target.value) || 0 })} className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">Cours de Coran (+ MRU / mois)</label>
+            <input type="number" value={tarifs.tarifCoran ?? TARIF_CORAN_DEFAUT} onChange={e => setTarifs({ ...tarifs, tarifCoran: parseInt(e.target.value) || 0 })} className={inputClass} />
           </div>
         </div>
       </div>

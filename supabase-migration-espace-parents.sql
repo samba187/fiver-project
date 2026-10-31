@@ -13,6 +13,12 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Autorisation photos/vidéos (fiche d'inscription)
 ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS autorisation_photos BOOLEAN DEFAULT true;
+-- Cours de Coran (supplément à la mensualité)
+ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS coran BOOLEAN DEFAULT false;
+-- Enfant qui arrête en cours de saison : gardé avec son historique, plus rien à payer à partir de date_arret
+ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS statut_inscription TEXT DEFAULT 'actif';
+ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS date_arret DATE;
+ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS motif_arret TEXT;
 
 -- ---------- Comptes parents ----------
 CREATE TABLE IF NOT EXISTS parent_comptes (
@@ -135,6 +141,8 @@ CREATE TABLE IF NOT EXISTS academy_annonces (
   auteur TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+-- Photos jointes à une annonce (liens /api/image/<id>)
+ALTER TABLE academy_annonces ADD COLUMN IF NOT EXISTS photos TEXT[] DEFAULT '{}';
 
 -- ---------- Comptes coachs créés depuis l'admin ----------
 CREATE TABLE IF NOT EXISTS staff_comptes (
@@ -341,7 +349,8 @@ BEGIN
       SELECT jsonb_agg(jsonb_build_object(
         'id', r.id, 'nom', r.nom, 'prenom', r.prenom, 'date_naissance', r.date_naissance, 'sexe', r.sexe,
         'telephone_parent', r.telephone_parent,
-        'categorie_foot', r.categorie_foot, 'football', r.football, 'centre_loisirs', r.centre_loisirs,
+        'categorie_foot', r.categorie_foot, 'football', r.football, 'centre_loisirs', r.centre_loisirs, 'coran', coalesce(r.coran, false),
+        'statut_inscription', coalesce(r.statut_inscription, 'actif'), 'date_arret', r.date_arret,
         'photo_url', r.photo_url, 'badge_code', r.badge_code, 'saison', r.saison, 'created_at', r.created_at,
         'tarif_total', r.tarif_total, 'tarif_football', r.tarif_football, 'tarif_loisirs', r.tarif_loisirs,
         'frais_inscription', r.frais_inscription, 'frais_inscription_paye', r.frais_inscription_paye,
@@ -375,7 +384,8 @@ BEGIN
       FROM academy_registrations r
       WHERE r.saison = v_saison AND tel8(r.telephone_parent) = v.telephone), '[]'::jsonb),
     'annonces', coalesce((
-      SELECT jsonb_agg(jsonb_build_object('id', a.id, 'titre', a.titre, 'contenu', a.contenu, 'categorie', a.categorie, 'created_at', a.created_at) ORDER BY a.created_at DESC)
+      SELECT jsonb_agg(jsonb_build_object('id', a.id, 'titre', a.titre, 'contenu', a.contenu, 'categorie', a.categorie,
+                                          'photos', coalesce(to_jsonb(a.photos), '[]'::jsonb), 'created_at', a.created_at) ORDER BY a.created_at DESC)
       FROM (
         SELECT * FROM academy_annonces
         WHERE categorie IS NULL OR categorie IN (

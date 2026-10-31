@@ -6,12 +6,13 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import {
-  categoriesPresentes, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
+  categoriesPresentes, estArrete, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
 } from "@/lib/academy";
 
 interface Joueur {
   id: number; nom: string; prenom: string; categorie_foot: string | null; photo_url: string | null; date_naissance: string | null;
   telephone_parent: string | null; autorisation_sortie: boolean | null; autorisation_photos: boolean | null; created_at: string;
+  statut_inscription?: string | null; date_arret?: string | null;
 }
 interface Evaluation { id: number; date_eval: string; discipline: number | null; comportement: number | null; progression: number | null; commentaire: string | null; auteur: string | null; visible: boolean }
 interface Photo { id: number; url: string; legende: string | null; auteur: string | null; visible: boolean; created_at: string }
@@ -44,10 +45,10 @@ export function JoueursView({ admin = false }: { admin?: boolean }) {
       const [saison, plan] = await Promise.all([fetchSaisonCourante(), fetchPlanning()]);
       const { data } = await supabase
         .from("academy_registrations")
-        .select("id, nom, prenom, categorie_foot, photo_url, date_naissance, telephone_parent, autorisation_sortie, autorisation_photos, created_at")
+        .select("id, nom, prenom, categorie_foot, photo_url, date_naissance, telephone_parent, autorisation_sortie, autorisation_photos, created_at, statut_inscription, date_arret")
         .eq("saison", saison)
         .order("prenom");
-      setJoueurs((data as Joueur[]) || []);
+      setJoueurs(((data as Joueur[]) || []).filter(j => !estArrete(j)));
       setPlanning(plan);
       setChargement(false);
     })();
@@ -278,7 +279,7 @@ function FicheJoueur({ joueur, planning, admin, onFermer }: { joueur: Joueur; pl
           <h3 className="text-sm font-bold uppercase tracking-wide text-white/70">Photos</h3>
           {photosAutorisees && (
             <>
-              <input ref={inputPhoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={ajouterPhoto} />
+              <input ref={inputPhoto} type="file" accept="image/*" className="hidden" onChange={ajouterPhoto} />
               <button onClick={() => inputPhoto.current?.click()} disabled={envoiPhoto} className="flex items-center gap-1 rounded-lg bg-fiver-green px-3 py-1.5 text-xs font-bold text-fiver-black disabled:opacity-50">
                 {envoiPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />} Photo
               </button>

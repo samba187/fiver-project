@@ -44,6 +44,12 @@ export interface Registration {
   deja_inscrit: boolean;
   autorisation_sortie: boolean | null;
   autorisation_photos: boolean | null;
+  /** Cours de Coran (supplément à la mensualité) */
+  coran?: boolean | null;
+  /** "actif" ou "arrete" (enfant qui a arrêté en cours de saison, gardé dans l'historique) */
+  statut_inscription?: string | null;
+  date_arret?: string | null;
+  motif_arret?: string | null;
   saison: string | null;
   badge_code: string | null;
   academy_payments_history?: any[];
@@ -69,6 +75,8 @@ export interface Tarifs {
   seuilFinDeMois: number;
   /** Numéro Bankily / Masrvi… affiché aux parents dans l'Espace Parents */
   numeroPaiement?: string;
+  /** Supplément mensuel des cours de Coran */
+  tarifCoran?: number;
 }
 
 const DEFAULT_TARIFS: Tarifs = {
