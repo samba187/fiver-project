@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Check, X as XIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -56,7 +56,10 @@ export function TableauPresences({ registrations }: { registrations: Registratio
   );
   const categories = useMemo(() => categoriesPresentes(enfants.map(r => r.categorie_foot)), [enfants]);
 
+  // Seule la dernière demande compte (changement de mois rapide)
+  const derniereDemande = useRef(0);
   const charger = useCallback(async () => {
+    const demande = ++derniereDemande.current;
     const ids = enfants.map(r => r.id);
     if (ids.length === 0) { setLignes([]); setScans(new Set()); setChargement(false); return; }
     const [{ data: p }, { data: s }] = await Promise.all([
@@ -65,6 +68,7 @@ export function TableauPresences({ registrations }: { registrations: Registratio
       supabase.from("academy_presences").select("registration_id, date_presence")
         .in("registration_id", ids).eq("autorise", true).gte("date_presence", debut).lte("date_presence", fin),
     ]);
+    if (demande !== derniereDemande.current) return;
     setLignes((p as Ligne[]) || []);
     setScans(new Set(((s as { registration_id: number; date_presence: string }[]) || []).map(x => `${x.registration_id}|${x.date_presence}`)));
     setChargement(false);

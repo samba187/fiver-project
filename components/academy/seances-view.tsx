@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Check, X as XIcon, ScanLine, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -62,13 +62,17 @@ export function SeancesView() {
 
   const joueursCat = useMemo(() => joueurs.filter(j => j.categorie_foot === categorie), [joueurs, categorie]);
 
+  // Plusieurs chargements peuvent se croiser (changement de date/catégorie) : seul le dernier compte
+  const derniereDemande = useRef(0);
   const chargerSeance = useCallback(async () => {
+    const demande = ++derniereDemande.current;
     if (joueursCat.length === 0) { setLignes([]); setScans(new Set()); return; }
     const ids = joueursCat.map(j => j.id);
     const [{ data: p }, { data: s }] = await Promise.all([
       supabase.from("academy_seance_presences").select("registration_id, reponse_parent, presence_reelle").eq("date_seance", date).in("registration_id", ids),
       supabase.from("academy_presences").select("registration_id").eq("date_presence", date).eq("autorise", true).in("registration_id", ids),
     ]);
+    if (demande !== derniereDemande.current) return;
     setLignes((p as LignePresence[]) || []);
     setScans(new Set(((s as { registration_id: number }[]) || []).map(x => x.registration_id)));
   }, [joueursCat, date]);

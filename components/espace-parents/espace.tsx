@@ -270,6 +270,27 @@ function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnonces
             })}
           </div>
 
+          {/* Mois passés pas encore réglés : bien visibles */}
+          {(() => {
+            const retards = moisDeSaison(enfant.saison)
+              .filter(m => m < moisActuel)
+              .map(m => ({ m, ...statutMoisEnfant(enfant, m, donnees.tarifs) }))
+              .filter(x => x.statut === "retard" || x.statut === "partiel");
+            if (retards.length === 0) return null;
+            const total = retards.reduce((s, x) => s + Math.max(0, x.du - x.paye), 0);
+            return (
+              <button onClick={() => setVue("paiement")} className="mt-3 flex w-full items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-left">
+                <span>
+                  <span className="block text-sm font-bold text-red-200">
+                    {retards.length === 1 ? "1 mois en retard" : `${retards.length} mois en retard`}
+                  </span>
+                  <span className="block text-xs text-white/60">{retards.map(x => libelleMois(x.m)).join(", ")} · {mru(total)} à régler</span>
+                </span>
+                <CircleAlert className="h-5 w-5 shrink-0 text-red-300" />
+              </button>
+            );
+          })()}
+
           {!enfant.frais_inscription_paye && (
             <button onClick={() => setVue("paiement")} className={cn("mt-3 flex w-full items-center justify-between rounded-2xl border p-4 text-left", fraisEnVerification(enfant) ? "border-sky-400/30 bg-sky-400/10" : "border-amber-400/30 bg-amber-400/10")}>
               <span>
