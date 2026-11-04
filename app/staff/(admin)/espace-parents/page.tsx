@@ -10,7 +10,7 @@ import { libelleDepot, lignesPreuve, imageEnDataUrl, MOYENS_SANS_CAPTURE, type L
 
 interface Enfant { id: number; nom: string; prenom: string; categorie_foot: string | null; telephone_parent: string | null }
 interface Preuve {
-  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; details: LignePreuve[] | null; note: string | null;
+  id: number; registration_id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; details: LignePreuve[] | null; note: string | null; depose_par: string | null;
   statut: "en_attente" | "valide" | "refuse"; motif_refus: string | null; traite_par: string | null; created_at: string;
 }
 interface Compte { id: string; telephone: string; nom: string | null; actif: boolean; created_at: string; derniere_connexion: string | null }
@@ -38,7 +38,7 @@ export default function EspaceParentsAdminPage() {
     const saison = await fetchSaisonCourante();
     const [r, p, c, m, a, s] = await Promise.all([
       supabase.from("academy_registrations").select("id, nom, prenom, categorie_foot, telephone_parent").eq("saison", saison),
-      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, details, note, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
+      supabase.from("academy_preuves_paiement").select("id, registration_id, mois_concerne, montant, moyen_paiement, details, note, depose_par, statut, motif_refus, traite_par, created_at").order("created_at", { ascending: false }).limit(200),
       supabase.from("parent_comptes").select("*").order("created_at", { ascending: false }),
       supabase.from("parent_messages").select("*").order("created_at", { ascending: true }),
       supabase.from("academy_annonces").select("*").order("created_at", { ascending: false }),
@@ -111,6 +111,18 @@ function nomFamille(c: Compte, enfants: Enfant[]) {
 }
 
 const sousTitreParent = (c: Compte) => `Parent${c.nom ? ` ${c.nom}` : ""} · ${c.telephone}`;
+
+/** Notification sur le téléphone du parent (refus, message) — sans bloquer si elle échoue */
+async function notifierParent(corps: { type: "refus"; preuveId: number } | { type: "message"; parentId: string }) {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch("/api/parents/notifier", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token || ""}` },
+      body: JSON.stringify(corps),
+    });
+  } catch {}
+}
 
 function nomEnfant(enfants: Enfant[], id: number) {
   const e = enfants.find(x => x.id === id);
@@ -194,7 +206,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
     setEnCours(true);
     const { error } = await supabase.from("academy_preuves_paiement").update({ statut: "refuse", motif_refus: motif.trim(), traite_par: moi, traite_le: new Date().toISOString() }).eq("id", p.id);
     if (error) alert(error.message);
-    else { setOuverte(null); await onMaj(); }
+    else { setOuverte(null); notifierParent({ type: "refus", preuveId: p.id }); await onMaj(); }
     setEnCours(false);
   }
 
@@ -215,6 +227,7 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-white">{nomEnfant(enfants, p.registration_id)} <span className="font-normal text-white/40">· {libelleDepot(p)}</span></p>
             <p className="text-xs text-white/40">{mru(p.montant)} · {p.moyen_paiement} · déposé le {new Date(p.created_at).toLocaleDateString("fr-FR")}</p>
+            {p.depose_par && <p className="mt-0.5 text-xs font-semibold text-violet-300">Déposé par le staff : {p.depose_par}</p>}
             {p.note && <p className="mt-0.5 truncate text-xs text-sky-300/80">Note : {p.note}</p>}
           </div>
           <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold",
@@ -256,7 +269,8 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
                   <p className="mt-1 text-xs text-white/40">{lignesPreuve(ouverte).map(l => `${libelleDepot({ ...ouverte, details: [l] })} : ${mru(l.montant)}`).join(" · ")}</p>
                 )}
                 <p className="text-xs text-white/30">Tél. {enfants.find(e => e.id === ouverte.registration_id)?.telephone_parent || "—"}</p>
-                {ouverte.note && <p className="mt-2 rounded-md border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">Note du parent : {ouverte.note}</p>}
+                {ouverte.depose_par && <p className="mt-2 rounded-md border border-violet-400/20 bg-violet-400/10 px-3 py-2 text-sm text-violet-100">Déposé par le staff : <strong>{ouverte.depose_par}</strong></p>}
+                {ouverte.note && <p className="mt-2 rounded-md border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm text-sky-100">{ouverte.depose_par ? "Note" : "Note du parent"} : {ouverte.note}</p>}
               </div>
               <button onClick={() => setOuverte(null)} className="text-white/40 hover:text-white"><XIcon className="h-5 w-5" /></button>
             </div>
@@ -332,7 +346,7 @@ function OngletMessages({ comptes, messages, enfants, moi, onMaj }: { comptes: C
     if (!parentId || !texte.trim()) return;
     setEnvoi(true);
     const { error } = await supabase.from("parent_messages").insert({ parent_id: parentId, sens: "academie", contenu: texte.trim(), auteur: moi });
-    if (error) alert(error.message); else { setTexte(""); await onMaj(); }
+    if (error) alert(error.message); else { setTexte(""); notifierParent({ type: "message", parentId }); await onMaj(); }
     setEnvoi(false);
   }
 

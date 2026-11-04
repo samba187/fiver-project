@@ -8,6 +8,7 @@ import { compressImage } from "@/lib/compress-image";
 import {
   categoriesPresentes, estArrete, fetchPlanning, fetchSaisonCourante, seancesEntre, dateLocale, decalerJours, type PlanningAcademy,
 } from "@/lib/academy";
+import { PaiementsJoueur } from "@/components/academy/paiements-joueur";
 
 interface Joueur {
   id: number; nom: string; prenom: string; categorie_foot: string | null; photo_url: string | null; date_naissance: string | null;
@@ -224,6 +225,9 @@ function FicheJoueur({ joueur, planning, admin, onFermer }: { joueur: Joueur; pl
         </div>
 
         {erreur && <p className="mb-3 text-sm text-red-300">{erreur}</p>}
+
+        {/* Paiements : le staff peut déposer un paiement à la place du parent */}
+        <PaiementsJoueur joueurId={joueur.id} auteur={auteur} />
 
         {/* Évaluations */}
         <div className="mb-2 flex items-center justify-between">

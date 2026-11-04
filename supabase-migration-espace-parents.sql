@@ -72,6 +72,8 @@ CREATE INDEX IF NOT EXISTS idx_preuves_statut ON academy_preuves_paiement (statu
 ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS details JSONB;
 -- Note laissée par le parent avec son paiement
 ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS note TEXT;
+-- Paiement déposé par le staff à la place du parent (nom du membre du staff)
+ALTER TABLE academy_preuves_paiement ADD COLUMN IF NOT EXISTS depose_par TEXT;
 
 -- ---------- Séances : réponse des parents + présence pointée par le coach ----------
 CREATE TABLE IF NOT EXISTS academy_seance_presences (
@@ -144,6 +146,15 @@ CREATE TABLE IF NOT EXISTS academy_annonces (
 -- Photos jointes à une annonce (liens /api/image/<id>)
 ALTER TABLE academy_annonces ADD COLUMN IF NOT EXISTS photos TEXT[] DEFAULT '{}';
 
+-- ---------- Notifications sur le téléphone des parents (Web Push) ----------
+CREATE TABLE IF NOT EXISTS parent_push (
+  id SERIAL PRIMARY KEY,
+  parent_id UUID NOT NULL REFERENCES parent_comptes(id) ON DELETE CASCADE,
+  endpoint TEXT UNIQUE NOT NULL,
+  abonnement JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ---------- Comptes coachs créés depuis l'admin ----------
 CREATE TABLE IF NOT EXISTS staff_comptes (
   id SERIAL PRIMARY KEY,
@@ -166,13 +177,14 @@ ALTER TABLE academy_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE parent_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE academy_annonces ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_comptes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE parent_push ENABLE ROW LEVEL SECURITY;
 
 -- Le personnel connecté (admin / coach) gère tout ; parent_secrets, parent_sessions et parent_tentatives n'ont aucune policy.
 DO $$
 DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY['parent_comptes', 'academy_preuves_paiement', 'academy_seance_presences', 'academy_evaluations',
-                           'academy_galerie', 'academy_images', 'parent_messages', 'academy_annonces', 'staff_comptes']
+                           'academy_galerie', 'academy_images', 'parent_messages', 'academy_annonces', 'staff_comptes', 'parent_push']
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS "staff_all" ON %I', t);
     EXECUTE format('CREATE POLICY "staff_all" ON %I FOR ALL TO authenticated USING (true) WITH CHECK (true)', t);
@@ -511,6 +523,27 @@ BEGIN
   UPDATE parent_messages SET lu = true WHERE parent_id = v.id AND sens = 'academie' AND NOT lu;
 END $$;
 
+-- Abonnement du téléphone du parent aux notifications (Web Push)
+CREATE OR REPLACE FUNCTION parent_enregistrer_push(p_token TEXT, p_abonnement JSONB) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v parent_comptes := _parent_session(p_token);
+BEGIN
+  IF p_abonnement IS NULL OR coalesce(p_abonnement->>'endpoint', '') !~ '^https://' OR length(p_abonnement::text) > 4000 THEN
+    RAISE EXCEPTION 'ABONNEMENT_INVALIDE';
+  END IF;
+  INSERT INTO parent_push (parent_id, endpoint, abonnement) VALUES (v.id, p_abonnement->>'endpoint', p_abonnement)
+  ON CONFLICT (endpoint) DO UPDATE SET parent_id = EXCLUDED.parent_id, abonnement = EXCLUDED.abonnement;
+  -- 10 téléphones / navigateurs maximum par compte
+  DELETE FROM parent_push WHERE parent_id = v.id AND id NOT IN (SELECT id FROM parent_push WHERE parent_id = v.id ORDER BY created_at DESC LIMIT 10);
+END $$;
+
+CREATE OR REPLACE FUNCTION parent_supprimer_push(p_token TEXT, p_endpoint TEXT) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v parent_comptes := _parent_session(p_token);
+BEGIN
+  DELETE FROM parent_push WHERE parent_id = v.id AND endpoint = p_endpoint;
+END $$;
+
 -- Image publique (photo de profil) servie par /api/image/<id>
 CREATE OR REPLACE FUNCTION image_publique(p_id UUID) RETURNS TEXT
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -542,5 +575,7 @@ GRANT EXECUTE ON FUNCTION parent_repondre_seance(TEXT, INTEGER, DATE, TEXT) TO a
 GRANT EXECUTE ON FUNCTION parent_envoyer_message(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION parent_messages_lus(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION image_publique(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION parent_enregistrer_push(TEXT, JSONB) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION parent_supprimer_push(TEXT, TEXT) TO anon, authenticated;
 REVOKE EXECUTE ON FUNCTION admin_parent_mot_de_passe(UUID, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION admin_parent_mot_de_passe(UUID, TEXT) TO authenticated;

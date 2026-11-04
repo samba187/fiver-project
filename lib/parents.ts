@@ -11,7 +11,7 @@ export interface PaiementParent { id: number; mois_concerne: string; montant: nu
 export interface LignePreuve { mois: string; montant: number }
 export interface PreuveParent {
   id: number; mois_concerne: string; montant: number; moyen_paiement: string | null; statut: "en_attente" | "valide" | "refuse";
-  motif_refus: string | null; created_at: string; traite_le?: string | null; note?: string | null;
+  motif_refus: string | null; created_at: string; traite_le?: string | null; note?: string | null; depose_par?: string | null;
   /** Mois couverts par un même dépôt (paiement de plusieurs mois en une fois) */
   details?: LignePreuve[] | null;
 }

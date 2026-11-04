@@ -151,8 +151,9 @@ export async function POST(request: Request) {
         "Moyen de paiement": esc(data.moyen),
         "Capture": esc(data.capture),
       };
-      if (data.note) lignes["Note du parent"] = esc(data.note);
-      html = buildEmail('Nouveau paiement déposé par un parent', lignes, `${siteUrl}/staff/espace-parents`, "Vérifier le paiement");
+      if (data.deposePar) lignes["Déposé par le staff"] = esc(data.deposePar);
+      if (data.note) lignes[data.deposePar ? "Note" : "Note du parent"] = esc(data.note);
+      html = buildEmail(data.deposePar ? 'Paiement déposé par le staff' : 'Nouveau paiement déposé par un parent', lignes, `${siteUrl}/staff/espace-parents`, "Vérifier le paiement");
     } else if (type === 'sport_feminin') {
       subject = '💖 Inscription Sport Féminin : ' + data.prenom + ' ' + data.nom;
       html = buildEmail(

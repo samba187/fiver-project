@@ -15,6 +15,7 @@ import {
   currentMonthStr, moisDeSaison, seancesEntre, dateLocale, decalerJours, estArrete, JOURS_LONGS,
 } from "@/lib/academy";
 import { RecuAcademy, lignesRecu, recuEnPdf } from "@/components/academy/recu-academy";
+import { etatPush, activerPush, desactiverPush, type EtatPush } from "@/lib/push-parent";
 
 type Vue = "accueil" | "paiement" | "factures" | "entrainements" | "photos" | "suivi" | "messages";
 
@@ -303,6 +304,8 @@ function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnonces
         </>
       )}
 
+      <CarteNotifications />
+
       {/* Services */}
       <h3 className="mb-3 mt-6 font-[var(--font-heading)] text-lg font-bold uppercase text-white">Mes services</h3>
       <div className="grid grid-cols-3 gap-2.5">
@@ -343,6 +346,63 @@ function Accueil({ donnees, enfant, setEnfantId, ouvrir, nonLus, vus, onAnnonces
         )}
       </div>
     </>
+  );
+}
+
+// ======================= NOTIFICATIONS SUR LE TÉLÉPHONE =======================
+
+const CLE_PLUS_TARD = "fiveur_push_plus_tard";
+
+function CarteNotifications() {
+  const [etat, setEtat] = useState<EtatPush | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [masquee, setMasquee] = useState(() => { try { return localStorage.getItem(CLE_PLUS_TARD) === "1"; } catch { return false; } });
+
+  useEffect(() => { etatPush().then(setEtat).catch(() => setEtat("indisponible")); }, []);
+
+  function plusTard() {
+    setMasquee(true);
+    try { localStorage.setItem(CLE_PLUS_TARD, "1"); } catch {}
+  }
+
+  async function basculer() {
+    setEnCours(true);
+    try { setEtat(etat === "actif" ? await desactiverPush() : await activerPush()); }
+    catch { setEtat("indisponible"); }
+    setEnCours(false);
+  }
+
+  if (!etat || etat === "indisponible") return null;
+  if (etat === "actif") {
+    return (
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-2.5">
+        <p className="flex items-center gap-2 text-xs text-white/50"><Bell className="h-3.5 w-3.5 text-fiver-green" /> Notifications activées sur ce téléphone</p>
+        <button onClick={basculer} disabled={enCours} className="text-xs text-white/40 underline">Désactiver</button>
+      </div>
+    );
+  }
+  if (masquee) return null;
+  return (
+    <div className="mt-4 rounded-2xl border border-fiver-green/25 bg-fiver-green/5 p-4">
+      <p className="flex items-center gap-2 text-sm font-bold text-white"><Bell className="h-4 w-4 text-fiver-green" /> Être prévenu sur ce téléphone</p>
+      {etat === "iphone_a_installer" ? (
+        <p className="mt-1 text-xs leading-relaxed text-white/60">
+          Sur iPhone, ajoutez d&apos;abord l&apos;Espace Parents à votre écran d&apos;accueil : touchez <strong className="text-white">Partager</strong> (le carré avec la flèche), puis <strong className="text-white">« Sur l&apos;écran d&apos;accueil »</strong>. Rouvrez-le ensuite depuis l&apos;icône Fiveur pour activer les notifications.
+        </p>
+      ) : etat === "refuse" ? (
+        <p className="mt-1 text-xs text-white/60">Les notifications sont bloquées pour ce site. Autorisez-les dans les réglages de votre téléphone, puis revenez ici.</p>
+      ) : (
+        <p className="mt-1 text-xs text-white/60">Recevez une notification quand l&apos;académie valide (ou refuse) un paiement et quand elle vous répond.</p>
+      )}
+      <div className="mt-3 flex gap-2">
+        {etat === "a_activer" && (
+          <button onClick={basculer} disabled={enCours} className="flex items-center gap-2 rounded-lg bg-fiver-green px-4 py-2 text-sm font-bold text-fiver-black disabled:opacity-50">
+            {enCours ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />} Activer
+          </button>
+        )}
+        <button onClick={plusTard} className="rounded-lg px-3 py-2 text-sm text-white/40">{etat === "a_activer" ? "Plus tard" : "Compris"}</button>
+      </div>
+    </div>
   );
 }
 

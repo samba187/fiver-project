@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { clientStaff } from "@/lib/serveur-staff";
+import { notifierFamille } from "@/lib/push-serveur";
 
-// Confirmation WhatsApp au parent quand l'académie valide un paiement déposé.
+// Confirmation au parent quand l'académie valide un paiement déposé :
+// notification sur son téléphone (s'il l'a activée) + message WhatsApp.
 // - Clés WhatsApp Business (Meta) + modèle approuvé configurés : envoi automatique.
 // - Sinon : renvoie le message et le numéro, l'admin l'envoie en un clic (lien wa.me).
 // Réservé au personnel connecté : le message est construit à partir de la base, jamais du navigateur.
@@ -24,16 +26,11 @@ function numeroWhatsApp(tel: string | null) {
 
 export async function POST(req: Request) {
   try {
-    const jeton = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-    const { preuveId, origin } = await req.json();
-    if (!jeton || !preuveId) return NextResponse.json({ erreur: "Requête invalide" }, { status: 400 });
-
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-      global: { headers: { Authorization: `Bearer ${jeton}` } },
-      auth: { persistSession: false },
-    });
-    const { data: u } = await supabase.auth.getUser(jeton);
-    if (!u.user) return NextResponse.json({ erreur: "Non autorisé" }, { status: 401 });
+    const { preuveId, origin } = await req.json().catch(() => ({}));
+    if (!req.headers.get("authorization") || !preuveId) return NextResponse.json({ erreur: "Requête invalide" }, { status: 400 });
+    const staff = await clientStaff(req);
+    if (!staff) return NextResponse.json({ erreur: "Non autorisé" }, { status: 401 });
+    const { supabase } = staff;
 
     const { data: p } = await supabase
       .from("academy_preuves_paiement")
@@ -70,6 +67,12 @@ export async function POST(req: Request) {
     ].join("\n");
     const telephone = numeroWhatsApp(r.telephone_parent);
 
+    // Notification sur le téléphone du parent (si activée dans son Espace Parents)
+    const push = await notifierFamille(supabase, r.telephone_parent, {
+      title: "✅ Paiement validé",
+      body: `${r.prenom} : ${objet} — ${montant}. Votre reçu est disponible.`,
+    }).catch(() => 0);
+
     // Envoi automatique : WhatsApp Business (Meta) avec un modèle approuvé
     // (corps du modèle avec 3 variables : {{1}} enfant, {{2}} objet, {{3}} montant).
     const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
@@ -90,11 +93,11 @@ export async function POST(req: Request) {
           },
         }),
       });
-      if (res.ok) return NextResponse.json({ envoye: true, telephone, message });
+      if (res.ok) return NextResponse.json({ envoye: true, push, telephone, message });
       console.error("WhatsApp paiement validé :", await res.text());
     }
 
-    return NextResponse.json({ envoye: false, telephone, message });
+    return NextResponse.json({ envoye: false, push, telephone, message });
   } catch (e) {
     console.error("WhatsApp paiement validé :", e);
     return NextResponse.json({ erreur: "Erreur serveur" }, { status: 500 });
