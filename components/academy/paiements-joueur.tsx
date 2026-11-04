@@ -77,13 +77,13 @@ export function PaiementsJoueur({ joueurId, auteur }: { joueurId: number; auteur
         </div>
       )}
 
-      {formulaire && <FormulaireDepot enfant={enfant} tarifs={tarifs} auteur={auteur} onFermer={() => setFormulaire(false)} onEnvoye={async () => { setFormulaire(false); await charger(); }} />}
+      {formulaire && <FormulaireDepot enfant={enfant} tarifs={tarifs} auteur={auteur} onFermer={() => setFormulaire(false)} onEnvoye={async () => { setFormulaire(false); await charger(); }} onRecharger={charger} />}
     </div>
   );
 }
 
-function FormulaireDepot({ enfant, tarifs, auteur, onFermer, onEnvoye }: {
-  enfant: EnfantParent; tarifs: DonneesParent["tarifs"]; auteur: string | null; onFermer: () => void; onEnvoye: () => Promise<void>;
+function FormulaireDepot({ enfant, tarifs, auteur, onFermer, onEnvoye, onRecharger }: {
+  enfant: EnfantParent; tarifs: DonneesParent["tarifs"]; auteur: string | null; onFermer: () => void; onEnvoye: () => Promise<void>; onRecharger: () => Promise<void>;
 }) {
   const moisActuel = currentMonthStr();
   const options = useMemo(() => {
@@ -126,6 +126,18 @@ function FormulaireDepot({ enfant, tarifs, auteur, onFermer, onEnvoye }: {
     if (!image && !sansCapture) { setErreur("Ajoutez la capture d'écran du paiement."); return; }
     const details = selection.length === 1 ? [{ mois: selection[0].val, montant }] : selection.map(o => ({ mois: o.val, montant: o.reste }));
     setEnvoi(true);
+    // Le parent a pu déposer le même mois pendant que le formulaire était ouvert
+    const { data: attente } = await supabase.from("academy_preuves_paiement").select("mois_concerne, details")
+      .eq("registration_id", enfant.id).eq("statut", "en_attente");
+    const dejaDeposes = new Set((attente || []).flatMap(p => Array.isArray(p.details) && p.details.length ? p.details.map((d: { mois: string }) => d.mois) : [p.mois_concerne]));
+    const doublons = details.filter(d => dejaDeposes.has(d.mois)).map(d => d.mois === "FRAIS" ? "Frais d'inscription" : libelleMois(d.mois));
+    if (doublons.length > 0) {
+      // Le formulaire reste ouvert : le message reste visible et les mois concernés disparaissent de la liste
+      setErreur(`Déjà en vérification : ${doublons.join(", ")}. Rien n'a été envoyé.`);
+      setEnvoi(false);
+      await onRecharger();
+      return;
+    }
     const { error } = await supabase.from("academy_preuves_paiement").insert({
       registration_id: enfant.id, parent_id: null, mois_concerne: details[0].mois, montant: details.reduce((t, d) => t + d.montant, 0),
       moyen_paiement: moyen, image: image || null, details, note: note.trim() || null, depose_par: auteur || "staff",

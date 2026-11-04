@@ -356,19 +356,22 @@ const CLE_PLUS_TARD = "fiveur_push_plus_tard";
 function CarteNotifications() {
   const [etat, setEtat] = useState<EtatPush | null>(null);
   const [enCours, setEnCours] = useState(false);
-  const [masquee, setMasquee] = useState(() => { try { return localStorage.getItem(CLE_PLUS_TARD) === "1"; } catch { return false; } });
+  // « Plus tard » : la carte revient au bout d'une semaine
+  const [masquee, setMasquee] = useState(() => { try { return Date.now() - Number(localStorage.getItem(CLE_PLUS_TARD) || 0) < 7 * 24 * 3600 * 1000; } catch { return false; } });
+  const [erreur, setErreur] = useState("");
 
   useEffect(() => { etatPush().then(setEtat).catch(() => setEtat("indisponible")); }, []);
 
   function plusTard() {
     setMasquee(true);
-    try { localStorage.setItem(CLE_PLUS_TARD, "1"); } catch {}
+    try { localStorage.setItem(CLE_PLUS_TARD, String(Date.now())); } catch {}
   }
 
   async function basculer() {
     setEnCours(true);
+    setErreur("");
     try { setEtat(etat === "actif" ? await desactiverPush() : await activerPush()); }
-    catch { setEtat("indisponible"); }
+    catch { setErreur("Impossible d'activer les notifications sur ce téléphone. Vérifiez votre connexion puis réessayez."); }
     setEnCours(false);
   }
 
@@ -394,6 +397,7 @@ function CarteNotifications() {
       ) : (
         <p className="mt-1 text-xs text-white/60">Recevez une notification quand l&apos;académie valide (ou refuse) un paiement et quand elle vous répond.</p>
       )}
+      {erreur && <p className="mt-2 text-xs text-red-300">{erreur}</p>}
       <div className="mt-3 flex gap-2">
         {etat === "a_activer" && (
           <button onClick={basculer} disabled={enCours} className="flex items-center gap-2 rounded-lg bg-fiver-green px-4 py-2 text-sm font-bold text-fiver-black disabled:opacity-50">

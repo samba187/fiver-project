@@ -170,6 +170,17 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
 
   async function valider(p: Preuve) {
     setEnCours(true);
+    // On « prend » le dépôt d'abord : s'il a déjà été traité (autre onglet, autre admin), on s'arrête là
+    const { data: pris, error: ePris } = await supabase.from("academy_preuves_paiement")
+      .update({ statut: "valide", traite_par: moi, traite_le: new Date().toISOString() })
+      .eq("id", p.id).eq("statut", "en_attente").select("id");
+    if (ePris || !pris?.length) {
+      alert(ePris ? "Validation impossible : " + ePris.message : "Ce paiement a déjà été traité.");
+      setOuverte(null);
+      await onMaj();
+      setEnCours(false);
+      return;
+    }
     try {
       // Un dépôt peut couvrir plusieurs mois (et les frais) : une ligne de paiement par mois
       const lignes = lignesPreuve(p);
@@ -186,17 +197,18 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
       const { error: eH } = await supabase.from("academy_payments_history").insert(lignes.map(l => ({
         registration_id: p.registration_id, mois_concerne: l.mois, montant: l.montant,
         moyen_paiement: p.moyen_paiement || "Autre",
-        description: l.mois === "FRAIS" ? "Frais d'inscription (dépôt parent)" : "Mensualité (dépôt parent)",
+        description: `${l.mois === "FRAIS" ? "Frais d'inscription" : "Mensualité"} (${p.depose_par ? `dépôt staff : ${p.depose_par}` : "dépôt parent"})`,
         date_paiement: maintenant,
       })));
       if (eH) throw eH;
-      const { error: eP } = await supabase.from("academy_preuves_paiement").update({ statut: "valide", traite_par: moi, traite_le: new Date().toISOString() }).eq("id", p.id);
-      if (eP) throw eP;
       setOuverte(null);
       await prevenirParent(p);
       await onMaj();
     } catch (e) {
+      // Échec en cours de route : le dépôt repasse « à vérifier » pour pouvoir réessayer
+      await supabase.from("academy_preuves_paiement").update({ statut: "en_attente", traite_par: null, traite_le: null }).eq("id", p.id);
       alert("Validation impossible : " + (e instanceof Error ? e.message : String(e)));
+      await onMaj();
     }
     setEnCours(false);
   }
@@ -204,8 +216,10 @@ function OngletPaiements({ preuves, enfants, moi, onMaj }: { preuves: Preuve[]; 
   async function refuser(p: Preuve) {
     if (!motif.trim()) { alert("Indiquez le motif du refus : il sera affiché au parent."); return; }
     setEnCours(true);
-    const { error } = await supabase.from("academy_preuves_paiement").update({ statut: "refuse", motif_refus: motif.trim(), traite_par: moi, traite_le: new Date().toISOString() }).eq("id", p.id);
+    const { data: pris, error } = await supabase.from("academy_preuves_paiement").update({ statut: "refuse", motif_refus: motif.trim(), traite_par: moi, traite_le: new Date().toISOString() })
+      .eq("id", p.id).eq("statut", "en_attente").select("id");
     if (error) alert(error.message);
+    else if (!pris?.length) { alert("Ce paiement a déjà été traité."); setOuverte(null); await onMaj(); }
     else { setOuverte(null); notifierParent({ type: "refus", preuveId: p.id }); await onMaj(); }
     setEnCours(false);
   }
