@@ -22,6 +22,7 @@ interface ScanRegistration {
   centre_loisirs: boolean;
   autorisation_sortie: boolean | null;
   coran?: boolean | null;
+  coran_debut?: string | null;
   statut_inscription?: string | null;
   date_arret?: string | null;
   academy_payments_history?: { mois_concerne: string; montant: number; moyen_paiement?: string | null }[];
@@ -159,7 +160,7 @@ export default function ScannerView() {
 
     const { data } = await supabase
       .from("academy_registrations")
-      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
+      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, coran_debut, statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
       .eq("saison", courante);
 
     const list = (data as ScanRegistration[]) || [];
@@ -336,7 +337,7 @@ export default function ScannerView() {
       chargerDerniereVenue(code);
       return;
     }
-    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), mensualiteFiche(reg, tarifsRef.current) || undefined);
+    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), mensualiteFiche(reg, tarifsRef.current, currentMonthStr()) || undefined);
     const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
     const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
 

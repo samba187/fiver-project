@@ -80,7 +80,7 @@ export function TabDashboard({
         const paye = recuPourMois(r, month);
         recu += paye;
         if (!estDu(r, month)) return;
-        const m = mensualiteFiche(r, tarifs);
+        const m = mensualiteFiche(r, tarifs, month);
         du += m;
         reste += Math.max(0, m - paye);
         if (paye >= m) aJour++;

@@ -99,7 +99,7 @@ const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({
   date_limite_paiement: null, observations: null, moyen_paiement: null, photo_url: null,
   frais_inscription: 1000, frais_inscription_paye: false, inscription_fin_de_mois: false,
   deja_inscrit: false, autorisation_sortie: null, autorisation_photos: true, saison: null, badge_code: null,
-  coran: false,
+  coran: false, coran_debut: null,
 });
 
 type SuggestionMatch = Pick<Registration, "id" | "nom" | "prenom" | "nom_pere" | "date_naissance" | "sexe" | "telephone_parent" | "adresse" | "categorie_foot" | "saison" | "badge_code" | "photo_url" | "autorisation_sortie">;
@@ -152,7 +152,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
     return registrations.filter(r => {
       if (filterCat !== "all" && r.categorie_foot !== filterCat) return false;
       if (filterStatus !== "all") {
-        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs));
+        const s = getStatutMoisEnCours(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs, currentMonthStr()));
         if (filterStatus === "ok" && s.status !== "ok") return false;
         if (filterStatus === "retard" && s.status !== "retard") return false;
         if (filterStatus === "attente" && s.status !== "attente" && s.status !== "partiel") return false;
@@ -172,6 +172,12 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
         const cat = categorieParNaissance(next.date_naissance, next.sexe === "F", next.saison || saison);
         if (cat) next.categorie_foot = cat;
       }
+      // Coran : facturé à partir du mois choisi (par défaut le mois en cours), jamais sur les mois d'avant
+      if (updates.coran === true && !next.coran_debut) {
+        const actuel = currentMonthStr();
+        next.coran_debut = moisSaison.length === 0 || moisSaison.includes(actuel) ? actuel : actuel < moisSaison[0] ? moisSaison[0] : moisSaison[moisSaison.length - 1];
+      }
+      if (updates.coran === false) next.coran_debut = null;
       if (updates.football !== undefined || updates.centre_loisirs !== undefined || updates.coran !== undefined || next.categorie_foot !== prev.categorie_foot) {
         next.tarif_total = mensualiteFiche(next, tarifs);
       }
@@ -289,7 +295,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
 
   // ====== QUICK PAYMENT LOGIC ======
   function openQuickPayMonth(r: Registration, monthStr: string) {
-    const mensualite = mensualiteFiche(r, tarifs);
+    const mensualite = mensualiteFiche(r, tarifs, monthStr);
     const history = r.academy_payments_history || [];
     const totalPaid = history.filter(h => h.mois_concerne === monthStr).reduce((acc, h) => acc + h.montant, 0);
     const remaining = mensualite - totalPaid;
@@ -313,7 +319,7 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
   }
 
   function openMonthChoice(r: Registration, monthStr: string) {
-    const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs));
+    const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs, monthStr));
     // If month is paid or partial, go directly to quick pay modal (existing behavior)
     if (status === "paye" || status === "partiel") {
       openQuickPayMonth(r, monthStr);
@@ -647,7 +653,7 @@ Merci de votre confiance !`;
                   <td className="px-3 py-3">
                     <p className={cn("text-sm font-bold transition-colors", estArrete(r) ? "text-red-300" : "text-white")}>
                       {r.prenom} {r.nom_pere ? r.nom_pere + " " : ""}{r.nom}
-                      {r.coran && <span className="ml-1.5 rounded bg-white/5 px-1.5 py-0.5 align-middle text-[9px] font-bold text-white/50">📖 CORAN</span>}
+                      {r.coran && <span className="ml-1.5 rounded bg-white/5 px-1.5 py-0.5 align-middle text-[9px] font-bold text-white/50">📖 CORAN{r.coran_debut ? ` DÈS ${libelleMoisCourt(r.coran_debut).toUpperCase()}` : ""}</span>}
                     </p>
                     {moisArret(r) && (
                       <p className="mt-0.5 text-[10px] font-bold uppercase text-red-400">
@@ -679,7 +685,7 @@ Merci de votre confiance !`;
                       {moisSaison.map(monthStr => {
                         const [annee, mm] = monthStr.split("-");
                         const m = ALL_MONTHS.find(x => x.val === mm) || { val: mm, label: mm };
-                        const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs));
+                        const status = getMonthStatus(r, monthStr, mensualiteFiche(r, tarifs, monthStr));
                         const colors: Record<string, string> = {
                           paye: "bg-green-500 text-black shadow-[0_0_8px_rgba(34,197,94,0.4)] hover:brightness-110",
                           partiel: "bg-amber-500 text-black hover:brightness-110",
@@ -898,7 +904,7 @@ Merci de votre confiance !`;
                 <p className="text-xs text-white/50">Mois où l&apos;enfant ne vient pas (rien à payer). Les mois déjà payés ne sont pas proposés.</p>
                 <div className="grid grid-cols-4 gap-1.5">
                   {moisSaison.map(m => {
-                    const st = getMonthStatus(retrait, m, mensualiteFiche(retrait, tarifs));
+                    const st = getMonthStatus(retrait, m, mensualiteFiche(retrait, tarifs, m));
                     const choisi = pauseMois.includes(m);
                     const bloque = st !== "non_paye";
                     return (
@@ -927,7 +933,7 @@ Merci de votre confiance !`;
 
       {/* ====== MONTH CHOICE MODAL (Encaisser vs OFF) ====== */}
       {monthChoiceOpen && monthChoicePlayer && monthChoiceMonth && (() => {
-        const status = getMonthStatus(monthChoicePlayer, monthChoiceMonth, mensualiteFiche(monthChoicePlayer, tarifs));
+        const status = getMonthStatus(monthChoicePlayer, monthChoiceMonth, mensualiteFiche(monthChoicePlayer, tarifs, monthChoiceMonth));
         const [y, m] = monthChoiceMonth.split("-");
         const monthLabel = ALL_MONTHS.find(x => x.val === m)?.label || m;
         const isOff = status === "off";
@@ -1181,6 +1187,16 @@ Merci de votre confiance !`;
                         <span className="font-bold text-white">📖 Cours de Coran</span>
                         <span className="ml-auto text-xs font-semibold text-fiver-green">+{(tarifs.tarifCoran ?? TARIF_CORAN_DEFAUT).toLocaleString("fr-FR")} MRU / mois</span>
                       </label>
+                      {form.coran && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-fiver-green/20 bg-fiver-green/[0.03] px-4 py-3 sm:col-span-2">
+                          <span className="text-sm text-white/70">Coran facturé à partir de</span>
+                          <select value={form.coran_debut || ""} onChange={e => handleFormChange({ coran_debut: e.target.value || null })} className="rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-sm font-bold text-fiver-green">
+                            <option value="" className="bg-[#1a1a1a]">Toute la saison</option>
+                            {moisSaison.map(m => <option key={m} value={m} className="bg-[#1a1a1a]">{libelleMoisCourt(m)}</option>)}
+                          </select>
+                          <span className="w-full text-[11px] text-white/40">Les mois d&apos;avant restent au prix sans Coran.</span>
+                        </div>
+                      )}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>

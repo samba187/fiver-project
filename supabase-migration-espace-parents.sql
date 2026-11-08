@@ -15,6 +15,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS autorisation_photos BOOLEAN DEFAULT true;
 -- Cours de Coran (supplément à la mensualité)
 ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS coran BOOLEAN DEFAULT false;
+ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS coran_debut TEXT;  -- premier mois facturé avec le Coran ("YYYY-MM")
 -- Enfant qui arrête en cours de saison : gardé avec son historique, plus rien à payer à partir de date_arret
 ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS statut_inscription TEXT DEFAULT 'actif';
 ALTER TABLE academy_registrations ADD COLUMN IF NOT EXISTS date_arret DATE;
@@ -361,7 +362,7 @@ BEGIN
       SELECT jsonb_agg(jsonb_build_object(
         'id', r.id, 'nom', r.nom, 'prenom', r.prenom, 'date_naissance', r.date_naissance, 'sexe', r.sexe,
         'telephone_parent', r.telephone_parent,
-        'categorie_foot', r.categorie_foot, 'football', r.football, 'centre_loisirs', r.centre_loisirs, 'coran', coalesce(r.coran, false),
+        'categorie_foot', r.categorie_foot, 'football', r.football, 'centre_loisirs', r.centre_loisirs, 'coran', coalesce(r.coran, false), 'coran_debut', r.coran_debut,
         'statut_inscription', coalesce(r.statut_inscription, 'actif'), 'date_arret', r.date_arret,
         'photo_url', r.photo_url, 'badge_code', r.badge_code, 'saison', r.saison, 'created_at', r.created_at,
         'tarif_total', r.tarif_total, 'tarif_football', r.tarif_football, 'tarif_loisirs', r.tarif_loisirs,

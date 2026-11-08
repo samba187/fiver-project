@@ -21,7 +21,7 @@ export interface SeanceParent { date: string; reponse: "present" | "absent" | nu
 
 export interface EnfantParent {
   id: number; nom: string; prenom: string; date_naissance: string | null; sexe: string; telephone_parent: string | null;
-  categorie_foot: string | null; football: boolean; centre_loisirs: boolean; coran?: boolean;
+  categorie_foot: string | null; football: boolean; centre_loisirs: boolean; coran?: boolean; coran_debut?: string | null;
   statut_inscription?: string | null; date_arret?: string | null;
   photo_url: string | null; badge_code: string | null; saison: string; created_at: string;
   tarif_total: number; frais_inscription: number; frais_inscription_paye: boolean; inscription_fin_de_mois: boolean;
@@ -150,7 +150,7 @@ export function fraisEnVerification(e: EnfantParent) {
 
 export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesParent["tarifs"]): { statut: StatutMois; du: number; paye: number } {
   const t = tarifs || { tarifFoot: 0, tarifLoisirs: 0, tarifCombo: 0 };
-  const du = mensualiteFiche(e, t) || e.tarif_total;
+  const du = mensualiteFiche(e, t, mois) || e.tarif_total;
   const paye = e.academy_payments_history.filter(h => h.mois_concerne === mois && h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
   const debut = debutSaison(e.saison);
   if (debut && mois < debut) return { statut: "avant_saison", du, paye };

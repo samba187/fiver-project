@@ -170,10 +170,18 @@ export interface FicheTarifable {
   centre_loisirs: boolean;
   categorie_foot: string | null;
   coran?: boolean | null;
+  /** Premier mois ("YYYY-MM") où le Coran est facturé. Vide = toute la saison. */
+  coran_debut?: string | null;
 }
 
-/** Mensualité due par une fiche, selon sa catégorie et ses prestations. */
-export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels): number {
+/** Le Coran est-il facturé ce mois-ci ? (sans mois : la mensualité actuelle) */
+export function coranFacture(r: FicheTarifable, mois?: string): boolean {
+  if (!r.coran) return false;
+  return !mois || !r.coran_debut || mois >= r.coran_debut;
+}
+
+/** Mensualité due par une fiche, selon sa catégorie et ses prestations (pour un mois donné si précisé). */
+export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels, mois?: string): number {
   const prixCat = r.categorie_foot ? t.tarifsCategorie?.[r.categorie_foot] : undefined;
   const foot = prixCat && prixCat > 0 ? prixCat : t.tarifFoot;
   // Le combo garde la même remise que Foot + Loisirs au tarif standard
@@ -183,7 +191,7 @@ export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels): number {
   else if (r.football) base = foot;
   else if (r.centre_loisirs) base = t.tarifLoisirs;
   // Cours de Coran : supplément ajouté à la mensualité
-  return base + (r.coran ? t.tarifCoran ?? TARIF_CORAN_DEFAUT : 0);
+  return base + (coranFacture(r, mois) ? t.tarifCoran ?? TARIF_CORAN_DEFAUT : 0);
 }
 
 // ---------- Planning des entraînements ----------

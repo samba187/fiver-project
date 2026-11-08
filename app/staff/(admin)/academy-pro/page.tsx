@@ -46,6 +46,8 @@ export interface Registration {
   autorisation_photos: boolean | null;
   /** Cours de Coran (supplément à la mensualité) */
   coran?: boolean | null;
+  /** Premier mois facturé avec le Coran ("YYYY-MM") */
+  coran_debut?: string | null;
   /** "actif" ou "arrete" (enfant qui a arrêté en cours de saison, gardé dans l'historique) */
   statut_inscription?: string | null;
   date_arret?: string | null;
