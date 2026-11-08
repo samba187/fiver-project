@@ -273,15 +273,22 @@ export function TabInscriptions({ registrations, tarifs, onRefresh, saison, mois
 
   async function saveReg() {
     if (!form.nom || !form.prenom) return;
-    const payload = { ...form, date_naissance: form.date_naissance || null };
-    const { error } = editingId
-      ? await supabase.from("academy_registrations").update(payload).eq("id", editingId)
+    const payload: Record<string, unknown> = { ...form, date_naissance: form.date_naissance || null };
+    if (!editingId) {
       // Nouvelle inscription : rattachée à la saison affichée, avec son code de carte QR
-      : await supabase.from("academy_registrations").insert({
-          ...payload,
-          saison,
-          badge_code: payload.badge_code || generateBadgeCode(),
-        });
+      payload.saison = saison;
+      payload.badge_code = payload.badge_code || generateBadgeCode();
+    }
+    const enregistrer = (p: Record<string, unknown>) => editingId
+      ? supabase.from("academy_registrations").update(p).eq("id", editingId)
+      : supabase.from("academy_registrations").insert(p);
+    let { error } = await enregistrer(payload);
+    // Base pas encore mise à jour (colonne coran_debut absente) : on enregistre quand même la fiche
+    if (error && /coran_debut/.test(error.message || "")) {
+      const { coran_debut: _ignore, ...sansDebut } = payload;
+      void _ignore;
+      ({ error } = await enregistrer(sansDebut));
+    }
     if (error) {
       console.error(error);
       alert(error.code === "23505"

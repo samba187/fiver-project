@@ -99,6 +99,8 @@ export function ImportInscritsModal({
         adresse: r.adresse,
         football: r.football,
         centre_loisirs: r.centre_loisirs,
+        // Le Coran suit l'enfant d'une saison à l'autre (toute la saison, modifiable sur la fiche)
+        coran: !!r.coran,
         categorie_foot: nouvelleCategorie(r, saison) || null,
         // Nouvelle saison = tarifs actuels : on n'hérite pas d'un ancien prix saisi sur la fiche
         tarif_football: 0,

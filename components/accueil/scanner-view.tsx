@@ -158,12 +158,12 @@ export default function ScannerView() {
       } catch {}
     }
 
-    const { data } = await supabase
-      .from("academy_registrations")
-      .select("id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, coran_debut, statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)")
-      .eq("saison", courante);
+    const colonnes = (coranDebut: boolean) => `id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, ${coranDebut ? "coran_debut, " : ""}statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)`;
+    let { data, error } = await supabase.from("academy_registrations").select(colonnes(true)).eq("saison", courante);
+    // Base pas encore mise à jour (colonne coran_debut absente) : le scanner doit continuer à marcher
+    if (error) ({ data } = await supabase.from("academy_registrations").select(colonnes(false)).eq("saison", courante));
 
-    const list = (data as ScanRegistration[]) || [];
+    const list = (data as unknown as ScanRegistration[]) || [];
     const index: Record<string, ScanRegistration> = {};
     list.forEach(r => { if (r.badge_code) index[r.badge_code] = r; });
     indexRef.current = index;
