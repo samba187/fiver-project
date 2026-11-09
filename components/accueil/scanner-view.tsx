@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { getMonthStatus, currentMonthStr, fetchSaisonCourante, debutSaison, mensualiteFiche, estArrete, type MonthStatus, type TarifsMensuels } from "@/lib/academy";
+import { currentMonthStr, fetchSaisonCourante, debutSaison, statutAccueil, estArrete, type MonthStatus, type TarifsMensuels } from "@/lib/academy";
 
 interface ScanRegistration {
   id: number;
@@ -23,6 +23,9 @@ interface ScanRegistration {
   autorisation_sortie: boolean | null;
   coran?: boolean | null;
   coran_debut?: string | null;
+  saison?: string | null;
+  created_at?: string | null;
+  inscription_fin_de_mois?: boolean | null;
   statut_inscription?: string | null;
   date_arret?: string | null;
   academy_payments_history?: { mois_concerne: string; montant: number; moyen_paiement?: string | null }[];
@@ -158,7 +161,7 @@ export default function ScannerView() {
       } catch {}
     }
 
-    const colonnes = (coranDebut: boolean) => `id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, ${coranDebut ? "coran_debut, " : ""}statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)`;
+    const colonnes = (coranDebut: boolean) => `id, nom, prenom, nom_pere, categorie_foot, photo_url, badge_code, tarif_total, football, centre_loisirs, coran, ${coranDebut ? "coran_debut, " : ""}saison, created_at, inscription_fin_de_mois, statut_inscription, date_arret, autorisation_sortie, academy_payments_history(mois_concerne, montant, moyen_paiement)`;
     let { data, error } = await supabase.from("academy_registrations").select(colonnes(true)).eq("saison", courante);
     // Base pas encore mise à jour (colonne coran_debut absente) : le scanner doit continuer à marcher
     if (error) ({ data } = await supabase.from("academy_registrations").select(colonnes(false)).eq("saison", courante));
@@ -337,8 +340,10 @@ export default function ScannerView() {
       chargerDerniereVenue(code);
       return;
     }
-    const statut: MonthStatus = avantSaison ? "off" : getMonthStatus(reg, currentMonthStr(), mensualiteFiche(reg, tarifsRef.current, currentMonthStr()) || undefined);
-    const enDelai = statut === "non_paye" && new Date().getDate() <= jourLimiteRef.current;
+    // Même règle que tous les écrans (lib/academy : etatMois) : mois offert de fin de mois, OFF, partiel…
+    const acces = statutAccueil(reg, tarifsRef.current, jourLimiteRef.current);
+    const statut: MonthStatus = avantSaison ? "off" : acces.statut;
+    const enDelai = !avantSaison && acces.enDelai;
     const tone = enDelai ? "warn" : STATUT_UI[statut].tone;
 
     if (tone === "bad") {

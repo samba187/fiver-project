@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Printer, MessageCircle, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
 import * as htmlToImage from "html-to-image";
 import jsPDF from "jspdf";
-import type { Registration } from "./page";
+import type { Registration, Tarifs } from "./page";
+import { currentMonthStr, etatMois, coranFacture } from "@/lib/academy";
 
 const inputClass = "w-full rounded-sm border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-fiver-green focus:outline-none focus:ring-1 focus:ring-fiver-green";
 
@@ -20,10 +20,9 @@ function formatPhone(phone: string | null) {
   return phone.replace(/[^0-9]/g, "");
 }
 
-export function TabRecus({ registrations }: { registrations: Registration[] }) {
+export function TabRecus({ registrations, tarifs }: { registrations: Registration[]; tarifs: Tarifs }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>("current");
-  const [historyData, setHistoryData] = useState<any>(null); // null = fetching/none, false = not paid, object = paid
   const [isGenerating, setIsGenerating] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
 
@@ -40,43 +39,23 @@ export function TabRecus({ registrations }: { registrations: Registration[] }) {
     return opts;
   }, []);
 
-  useEffect(() => {
-    if (selectedMonth === "current" || !selectedId) {
-      setHistoryData(null);
-      return;
-    }
-    async function fetchHistory() {
-      setHistoryData(null);
-      const { data } = await supabase.from("academy_payments_history")
-        .select("*")
-        .eq("registration_id", selectedId)
-        .eq("mois_concerne", selectedMonth)
-        .order("id", { ascending: false })
-        .limit(1);
-      setHistoryData(data && data.length > 0 ? data[0] : false);
-    }
-    fetchHistory();
-  }, [selectedId, selectedMonth]);
-
   const rawReg = registrations.find(r => r.id === selectedId);
+  const mois = selectedMonth === "current" ? currentMonthStr() : selectedMonth;
 
-  const reg = useMemo(() => {
-    if (!rawReg) return null;
-    if (selectedMonth === "current") return rawReg;
-    if (historyData === false) {
-      // Non payé ce mois-là
-      return { ...rawReg, montant_paye: 0, statut_paiement: "retard", moyen_paiement: null, date_paiement: null };
-    }
-    if (historyData) {
-      // Payé ce mois-là dans l'historique
-      return { ...rawReg, montant_paye: historyData.montant, statut_paiement: "paye", moyen_paiement: historyData.moyen_paiement, date_paiement: historyData.date_paiement };
-    }
-    return null; // En chargement
-  }, [rawReg, selectedMonth, historyData]);
-
-  const recuNum = reg && selectedMonth !== "current" && historyData 
-    ? `REC-${String(historyData.id).padStart(4, "0")}` 
-    : reg ? `REC-${String(reg.id).padStart(4, "0")}` : "";
+  // Reçu calculé à partir des vrais paiements du mois (comme la grille et l'Espace Parents)
+  const { reg, recuNum } = useMemo(() => {
+    if (!rawReg) return { reg: null, recuNum: "" };
+    const lignes = (rawReg.academy_payments_history || [])
+      .filter(h => h.mois_concerne === mois && h.moyen_paiement !== "OFF")
+      .sort((a, b) => String(b.date_paiement || "").localeCompare(String(a.date_paiement || "")));
+    const e = etatMois(rawReg, mois, { tarifs, jourLimite: tarifs.jourLimitePaiement });
+    const statut = e.etat === "paye" ? "paye" : e.etat === "partiel" ? "partiel" : !e.exigible ? "offert" : "en_attente";
+    const derniere = lignes[0] as { id?: number; moyen_paiement?: string | null; date_paiement?: string | null } | undefined;
+    return {
+      reg: { ...rawReg, tarif_total: e.du, montant_paye: e.paye, statut_paiement: statut, moyen_paiement: derniere?.moyen_paiement || null, date_paiement: derniere?.date_paiement || null },
+      recuNum: `REC-${String(derniere?.id ?? rawReg.id).padStart(4, "0")}`,
+    };
+  }, [rawReg, mois, tarifs]);
 
   const currentMonthLabel = useMemo(() => {
     const lbl = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
@@ -154,8 +133,8 @@ Mois : ${displayMonth}
 Joueur : ${nomComplet.toUpperCase()}
 ${age ? `Age : ${age} ans\n` : ""}${reg.football && reg.categorie_foot ? `Categorie : ${reg.categorie_foot}\n` : ""}${reg.centre_loisirs ? `Loisirs : Inclus\n` : ""}
 Mensualite : ${reg.tarif_total} MRU${fraisLine}
-Montant regle : ${reg.montant_paye} MRU${reg.moyen_paiement ? ` (${reg.moyen_paiement})` : ""}
-Statut : ${reg.statut_paiement === "paye" ? "[Paye]" : reg.statut_paiement === "partiel" ? "[Partiel]" : "[En attente]"}
+Montant regle : ${reg.montant_paye} MRU${reg.moyen_paiement ? ` (${reg.moyen_paiement})` : ""}${reg.statut_paiement === "partiel" ? `\nReste a payer : ${Math.max(0, reg.tarif_total - reg.montant_paye)} MRU` : ""}
+Statut : ${reg.statut_paiement === "paye" ? "[Paye]" : reg.statut_paiement === "partiel" ? "[Partiel]" : reg.statut_paiement === "offert" ? "[Rien a payer ce mois-ci]" : "[En attente]"}
 ${reg.date_paiement ? `Date : ${new Date(reg.date_paiement).toLocaleDateString("fr-FR")}\n` : ""}
 
 Merci de votre confiance.`;
@@ -197,10 +176,6 @@ Merci de votre confiance.`;
           </div>
         </div>
       </div>
-
-      {!reg && selectedId && selectedMonth !== "current" && historyData === null && (
-        <div className="text-white/50 text-sm animate-pulse">Recherche dans l'historique...</div>
-      )}
 
       {reg && (
         <>
@@ -266,14 +241,22 @@ Merci de votre confiance.`;
               <div style={{ padding: "8px 0" }}>
                 {reg.football && (
                   <div className="row" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #eee" }}>
-                    <span>⚽ Football Academy {reg.categorie_foot ? `(${reg.categorie_foot})` : ""}</span><span style={{ fontWeight: 600 }}>{reg.tarif_football} MRU</span>
+                    <span>⚽ Football Academy {reg.categorie_foot ? `(${reg.categorie_foot})` : ""}</span><span style={{ fontWeight: 600 }}>Inclus</span>
                   </div>
                 )}
                 {reg.centre_loisirs && (
                   <div className="row" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #eee" }}>
-                    <span>🎯 Centre de Loisirs</span><span style={{ fontWeight: 600 }}>{reg.tarif_loisirs} MRU</span>
+                    <span>🎯 Centre de Loisirs</span><span style={{ fontWeight: 600 }}>Inclus</span>
                   </div>
                 )}
+                {coranFacture(reg, mois) && (
+                  <div className="row" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #eee" }}>
+                    <span>📖 Cours de Coran</span><span style={{ fontWeight: 600 }}>Inclus</span>
+                  </div>
+                )}
+                <div className="row" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #eee" }}>
+                  <span>Mensualité</span><span style={{ fontWeight: 700 }}>{reg.tarif_total} MRU</span>
+                </div>
                 {!reg.frais_inscription_paye && (
                   <div className="row" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #eee", color: "#92400e" }}>
                     <span>🎟️ Frais d'inscription (1ère fois)</span><span style={{ fontWeight: 700 }}>+ {reg.frais_inscription} MRU</span>
@@ -294,13 +277,14 @@ Merci de votre confiance.`;
               <div className="section-title" style={{ background: "#2d6a2e", color: "white", padding: "6px 12px", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Statut du paiement</div>
               <div style={{ padding: "12px 0", textAlign: "center" }}>
                 <span style={{ display: "inline-block", padding: "6px 16px", borderRadius: 20, fontWeight: 700, fontSize: 14,
-                  background: reg.statut_paiement === "paye" ? "#dcfce7" : reg.statut_paiement === "partiel" ? "#fef3c7" : "#fee2e2",
-                  color: reg.statut_paiement === "paye" ? "#166534" : reg.statut_paiement === "partiel" ? "#92400e" : "#991b1b" }}>
-                  {reg.statut_paiement === "paye" ? "✅ Payé" : reg.statut_paiement === "partiel" ? "🟡 Partiel" : "🔴 En attente"}
+                  background: reg.statut_paiement === "paye" ? "#dcfce7" : reg.statut_paiement === "partiel" ? "#fef3c7" : reg.statut_paiement === "offert" ? "#f3f4f6" : "#fee2e2",
+                  color: reg.statut_paiement === "paye" ? "#166534" : reg.statut_paiement === "partiel" ? "#92400e" : reg.statut_paiement === "offert" ? "#4b5563" : "#991b1b" }}>
+                  {reg.statut_paiement === "paye" ? "✅ Payé" : reg.statut_paiement === "partiel" ? "🟡 Partiel" : reg.statut_paiement === "offert" ? "Rien à payer ce mois-ci" : "🔴 En attente"}
                 </span>
                 {reg.moyen_paiement && <p style={{ marginTop: 8, fontSize: 13, color: "#666", textTransform: "uppercase", fontWeight: "bold" }}>Moyen de paiement : {reg.moyen_paiement}</p>}
                 {reg.date_paiement && <p style={{ marginTop: 4, fontSize: 13, color: "#666" }}>Date de paiement : {new Date(reg.date_paiement).toLocaleDateString("fr-FR")}</p>}
                 <p style={{ marginTop: 4, fontSize: 13, color: "#2d6a2e" }}>Montant réglé : <strong>{reg.montant_paye} MRU</strong></p>
+                {reg.statut_paiement === "partiel" && <p style={{ marginTop: 4, fontSize: 13, color: "#92400e" }}>Reste à payer : <strong>{Math.max(0, reg.tarif_total - reg.montant_paye)} MRU</strong></p>}
               </div>
 
               <div className="footer" style={{ textAlign: "center", margin: "40px 0 20px 0", fontSize: 10, color: "#999", borderTop: "1px solid #eee", paddingTop: 16, position: "relative", zIndex: 10 }}>

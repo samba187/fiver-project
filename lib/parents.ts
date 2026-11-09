@@ -1,8 +1,8 @@
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
 import {
-  getMonthStatus, mensualiteFiche, debutSaison, currentMonthStr, lirePlanning, estArrete,
-  type MonthStatus, type PlanningAcademy, type TarifsMensuels,
+  etatMois, moisDeSaison, currentMonthStr, lirePlanning,
+  type PlanningAcademy, type TarifsMensuels,
 } from "@/lib/academy";
 
 // ---------- Types renvoyés par parent_donnees ----------
@@ -149,27 +149,29 @@ export function fraisEnVerification(e: EnfantParent) {
 }
 
 export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesParent["tarifs"]): { statut: StatutMois; du: number; paye: number } {
-  const t = tarifs || { tarifFoot: 0, tarifLoisirs: 0, tarifCombo: 0 };
-  const du = mensualiteFiche(e, t, mois) || e.tarif_total;
-  const paye = e.academy_payments_history.filter(h => h.mois_concerne === mois && h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
-  const debut = debutSaison(e.saison);
-  if (debut && mois < debut) return { statut: "avant_saison", du, paye };
-  // Mois d'avant l'inscription (ex : réinscrit en novembre) : rien à payer, comme dans le tableau de bord admin
-  const moisInscription = e.created_at ? currentMonthStr(new Date(e.created_at)) : null;
-  if (moisInscription && mois < moisInscription && paye === 0) return { statut: "avant_saison", du, paye };
-  if (estArrete(e, mois)) return { statut: "arrete", du, paye };
-  if (e.inscription_fin_de_mois && currentMonthStr(new Date(e.created_at)) === mois) return { statut: "offert", du, paye };
-  const s: MonthStatus = getMonthStatus(e, mois, du);
-  if (s === "off") return { statut: "offert", du, paye };
-  if (s === "paye") return { statut: "paye", du, paye };
+  // Même règle que tous les écrans de l'académie (lib/academy : etatMois)
+  const r = etatMois(e, mois, { tarifs: tarifs || { tarifFoot: 0, tarifLoisirs: 0, tarifCombo: 0 }, jourLimite: tarifs?.jourLimitePaiement });
+  const { du, paye } = r;
+  switch (r.etat) {
+    case "avant_saison": case "avant_inscription": return { statut: "avant_saison", du, paye };
+    case "arrete": return { statut: "arrete", du, paye };
+    case "off": case "offert": return { statut: "offert", du, paye };
+    case "paye": return { statut: "paye", du, paye };
+  }
   // Capture déposée, pas encore validée par l'académie
   if (enVerification(e, mois)) return { statut: "en_verification", du, paye };
-  if (s === "partiel") return { statut: "partiel", du, paye };
-  const actuel = currentMonthStr();
-  if (mois > actuel) return { statut: "a_venir", du, paye };
-  const jourLimite = tarifs?.jourLimitePaiement || 10;
-  if (mois < actuel || new Date().getDate() > jourLimite) return { statut: "retard", du, paye };
-  return { statut: "a_payer", du, paye };
+  return { statut: r.etat, du, paye };
+}
+
+/** Ce qui peut être payé maintenant : frais + mois non réglés de la saison (y compris d'avance). */
+export function elementsAPayer(e: EnfantParent, tarifs: DonneesParent["tarifs"]): { val: string; label: string; reste: number }[] {
+  const opts: { val: string; label: string; reste: number }[] = [];
+  if (!e.frais_inscription_paye && !fraisEnVerification(e)) opts.push({ val: "FRAIS", label: "Frais d'inscription", reste: e.frais_inscription });
+  for (const m of moisDeSaison(e.saison)) {
+    const s = statutMoisEnfant(e, m, tarifs);
+    if (["a_payer", "retard", "partiel", "a_venir"].includes(s.statut)) opts.push({ val: m, label: libelleMois(m), reste: Math.max(0, s.du - s.paye) });
+  }
+  return opts.filter(o => o.reste > 0);
 }
 
 export const LIBELLE_STATUT: Record<StatutMois, string> = {

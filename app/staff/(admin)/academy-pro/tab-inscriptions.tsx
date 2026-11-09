@@ -6,7 +6,7 @@ import { Plus, Search, X as XIcon, Save, Camera, CreditCard, AlertTriangle, Zap,
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/compress-image";
-import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, anneesCategorie, categorieParNaissance, debutSaison, mensualiteFiche, estArrete, moisArret, currentMonthStr, TARIF_CORAN_DEFAUT } from "@/lib/academy";
+import { getMonthStatus, generateBadgeCode, ACADEMY_CATEGORIES, anneesCategorie, categorieParNaissance, debutSaison, mensualiteFiche, estArrete, moisArret, currentMonthStr, etatMois, TARIF_CORAN_DEFAUT } from "@/lib/academy";
 import { RecuAcademy, lignesRecu, libelleLigneMois, recuEnPdf } from "@/components/academy/recu-academy";
 import type { Registration, Tarifs } from "./page";
 import { ImportInscritsModal } from "./import-inscrits";
@@ -40,56 +40,26 @@ function formatPhone(phone: string | null) {
 
 
 export function getStatutMoisEnCours(r: Registration, jourLimite: number, tarifMensuel: number, targetMonth?: string): { label: string; cls: string; badgeCls: string; status: "ok" | "attente" | "retard" | "partiel" | "offert" } {
+  // Même règle que tous les écrans (lib/academy : etatMois)
   const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const evalMonth = targetMonth || currentMonth;
-  const isPastMonth = targetMonth && targetMonth < currentMonth;
-  const isFutureMonth = targetMonth && targetMonth > currentMonth;
-  
-  const dayOfMonth = now.getDate();
-
-  // Mois antérieur à la saison de la fiche (ex : septembre pour une fiche 2026-2027) : rien à payer ici
-  const debut = debutSaison(r.saison);
-  if (debut && evalMonth < debut) {
-    return { label: "— Avant la saison", cls: "text-white/30", badgeCls: "bg-white/5 text-white/30", status: "offert" };
+  const evalMonth = targetMonth || currentMonthStr(now);
+  const e = etatMois(r, evalMonth, { du: tarifMensuel, jourLimite, aujourdhui: now });
+  const offert = (label: string, cls = "text-white/30", badgeCls = "bg-white/5 text-white/30") => ({ label, cls, badgeCls, status: "offert" as const });
+  switch (e.etat) {
+    case "avant_saison": return offert("— Avant la saison");
+    case "avant_inscription": return offert("— Pas encore inscrit");
+    case "offert": return offert("🆕 Mois offert", "text-blue-400 font-medium", "bg-blue-500/10 text-blue-400");
+    case "arrete": return offert("⛔ Arrêté", "text-red-400 font-medium", "bg-red-500/10 text-red-400");
+    case "off": return offert("⬛ OFF");
+    case "paye": return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
+    case "partiel": return { label: `🟡 Partiel (${e.paye}/${e.du})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
+    case "a_venir": return { label: "⏳ À venir", cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
+    case "a_payer": return { label: `🟡 J-${jourLimite - now.getDate()}`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
+    case "retard":
+      return evalMonth < currentMonthStr(now)
+        ? { label: "🔴 Non Payé", cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" }
+        : { label: `🔴 Retard (+${now.getDate() - jourLimite}j)`, cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" };
   }
-
-  if (r.inscription_fin_de_mois && r.created_at) {
-    const createdDate = new Date(r.created_at);
-    const createdMonthStr = `${createdDate.getFullYear()}-${String(createdDate.getMonth() + 1).padStart(2, "0")}`;
-    if (createdMonthStr === evalMonth) {
-      return { label: "🆕 Mois offert", cls: "text-blue-400 font-medium", badgeCls: "bg-blue-500/10 text-blue-400", status: "offert" };
-    }
-  }
-
-  // Enfant arrêté en cours de saison : plus rien à réclamer
-  if (estArrete(r, evalMonth)) {
-    return { label: "⛔ Arrêté", cls: "text-red-400 font-medium", badgeCls: "bg-red-500/10 text-red-400", status: "offert" };
-  }
-
-  const history = r.academy_payments_history || [];
-
-  // Check if eval month is OFF
-  if (history.some(h => h.mois_concerne === evalMonth && h.moyen_paiement === "OFF")) {
-    return { label: "⬛ OFF", cls: "text-white/30", badgeCls: "bg-white/5 text-white/30", status: "ok" };
-  }
-
-  const paymentsThisMonth = history.filter(h => h.mois_concerne === evalMonth && h.moyen_paiement !== "OFF");
-  const totalPaid = paymentsThisMonth.reduce((acc, h) => acc + h.montant, 0);
-
-  if (totalPaid >= tarifMensuel) return { label: "✅ À jour", cls: "text-green-400 font-medium", badgeCls: "bg-green-500/10 text-green-400", status: "ok" };
-  if (totalPaid > 0) return { label: `🟡 Partiel (${totalPaid}/${tarifMensuel})`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "partiel" };
-  
-  if (isPastMonth) {
-    return { label: `🔴 Non Payé`, cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" };
-  }
-  if (isFutureMonth) {
-    return { label: `⏳ À venir`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
-  }
-
-  if (dayOfMonth <= jourLimite) return { label: `🟡 J-${jourLimite - dayOfMonth}`, cls: "text-amber-400", badgeCls: "bg-amber-500/10 text-amber-400", status: "attente" };
-
-  return { label: `🔴 Retard (+${dayOfMonth - jourLimite}j)`, cls: "text-red-400 font-bold", badgeCls: "bg-red-500/10 text-red-400", status: "retard" };
 }
 
 const emptyForm = (): Omit<Registration, "id" | "created_at"> => ({

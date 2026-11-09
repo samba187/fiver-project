@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  appelParent, statutMoisEnfant, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
+  appelParent, statutMoisEnfant, elementsAPayer, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
   MOYENS_PAIEMENT_PARENT, MOYENS_SANS_CAPTURE, NUMERO_PAIEMENT_DEFAUT, lireVus, marquerVu, notificationsEnfant, nouvellesAnnonces,
   type DonneesParent, type EnfantParent, type StatutMois, type Vus,
 } from "@/lib/parents";
@@ -415,17 +415,7 @@ function CarteNotifications() {
 function VuePaiement({ donnees, enfant, onRetour, onRecharger }: { donnees: DonneesParent; enfant: EnfantParent; onRetour: () => void; onRecharger: () => Promise<void> }) {
   const moisActuel = currentMonthStr();
   // Tout ce qui reste à payer sur la saison : frais + mois non réglés (y compris les mois à venir, pour payer d'avance)
-  const options = useMemo(() => {
-    const opts: { val: string; label: string; reste: number }[] = [];
-    if (!enfant.frais_inscription_paye && !fraisEnVerification(enfant)) opts.push({ val: "FRAIS", label: "Frais d'inscription", reste: enfant.frais_inscription });
-    for (const m of moisDeSaison(enfant.saison)) {
-      const s = statutMoisEnfant(enfant, m, donnees.tarifs);
-      if (["a_payer", "retard", "partiel", "a_venir"].includes(s.statut)) {
-        opts.push({ val: m, label: libelleMois(m), reste: Math.max(0, s.du - s.paye) });
-      }
-    }
-    return opts.filter(o => o.reste > 0);
-  }, [enfant, donnees.tarifs]);
+  const options = useMemo(() => elementsAPayer(enfant, donnees.tarifs), [enfant, donnees.tarifs]);
 
   const [choix, setChoix] = useState<string[]>(() => {
     const defaut = options.find(o => o.val === moisActuel) || options.find(o => o.val !== "FRAIS") || options[0];

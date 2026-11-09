@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ACADEMY_CATEGORIES, debutSaison, currentMonthStr, mensualiteFiche, estArrete } from "@/lib/academy";
+import { ACADEMY_CATEGORIES, currentMonthStr, estArrete, etatMois } from "@/lib/academy";
 import type { Registration, Tarifs } from "./page";
 
 type Paiement = { mois_concerne: string; montant: number; moyen_paiement?: string | null; date_paiement?: string };
@@ -16,19 +16,6 @@ function formatMonth(val: string) {
 function historique(r: Registration): Paiement[] {
   return (r.academy_payments_history || []) as Paiement[];
 }
-
-/** La mensualité de ce mois est-elle due par cette fiche ? */
-function estDu(r: Registration, month: string) {
-  if (historique(r).some(h => h.mois_concerne === month && h.moyen_paiement === "OFF")) return false;
-  const debut = debutSaison(r.saison);
-  if (debut && month < debut) return false;
-  if (!r.created_at) return true;
-  const cm = currentMonthStr(new Date(r.created_at));
-  if (month < cm) return false;
-  if (r.inscription_fin_de_mois && cm === month) return false;
-  return true;
-}
-
 
 function recuPourMois(r: Registration, month: string) {
   return historique(r)
@@ -79,8 +66,10 @@ export function TabDashboard({
       registrations.forEach(r => {
         const paye = recuPourMois(r, month);
         recu += paye;
-        if (!estDu(r, month)) return;
-        const m = mensualiteFiche(r, tarifs, month);
+        // Même règle que tous les écrans : avant inscription, OFF, arrêté, mois offert… ne sont pas dus
+        const e = etatMois(r, month, { tarifs });
+        if (!e.exigible) return;
+        const m = e.du;
         du += m;
         reste += Math.max(0, m - paye);
         if (paye >= m) aJour++;

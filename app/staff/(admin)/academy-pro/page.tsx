@@ -282,7 +282,7 @@ export default function AcademyProPage() {
       {tab === "presences" && <TabPresences registrations={registrations} saison={saisonVue} />}
       {tab === "cartes" && <TabCartes registrations={registrations} saison={saisonVue} onRefresh={fetchData} />}
       {tab === "rappels" && <TabRappels registrations={registrations} tarifs={tarifs} />}
-      {tab === "recus" && <TabRecus registrations={registrations} />}
+      {tab === "recus" && <TabRecus registrations={registrations} tarifs={tarifs} />}
 
       {nouvelleSaisonOpen && (
         <NouvelleSaisonModal

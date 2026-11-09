@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { currentMonthStr, moisDeSaison } from "@/lib/academy";
 import {
-  statutMoisEnfant, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
+  statutMoisEnfant, elementsAPayer, fraisEnVerification, libelleMois, libelleDepot, imageEnDataUrl, LIBELLE_STATUT,
   MOYENS_PAIEMENT_PARENT, MOYENS_SANS_CAPTURE, type DonneesParent, type EnfantParent, type PreuveParent, type StatutMois,
 } from "@/lib/parents";
 
@@ -86,15 +86,7 @@ function FormulaireDepot({ enfant, tarifs, auteur, onFermer, onEnvoye, onRecharg
   enfant: EnfantParent; tarifs: DonneesParent["tarifs"]; auteur: string | null; onFermer: () => void; onEnvoye: () => Promise<void>; onRecharger: () => Promise<void>;
 }) {
   const moisActuel = currentMonthStr();
-  const options = useMemo(() => {
-    const opts: { val: string; label: string; reste: number }[] = [];
-    if (!enfant.frais_inscription_paye && !fraisEnVerification(enfant)) opts.push({ val: "FRAIS", label: "Frais d'inscription", reste: enfant.frais_inscription });
-    for (const m of moisDeSaison(enfant.saison)) {
-      const s = statutMoisEnfant(enfant, m, tarifs);
-      if (["a_payer", "retard", "partiel", "a_venir"].includes(s.statut)) opts.push({ val: m, label: libelleMois(m), reste: Math.max(0, s.du - s.paye) });
-    }
-    return opts.filter(o => o.reste > 0);
-  }, [enfant, tarifs]);
+  const options = useMemo(() => elementsAPayer(enfant, tarifs), [enfant, tarifs]);
 
   const [choix, setChoix] = useState<string[]>(() => {
     const d = options.find(o => o.val === moisActuel) || options.find(o => o.val !== "FRAIS") || options[0];

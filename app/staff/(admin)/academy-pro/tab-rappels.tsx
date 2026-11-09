@@ -68,9 +68,7 @@ export function TabRappels({ registrations, tarifs }: { registrations: Registrat
     return registrations
       .filter(r => r.telephone_parent)
       .filter(r => {
-        // Skip fin de mois inscriptions in their first month
-        if (r.inscription_fin_de_mois && r.created_at && new Date(r.created_at).getMonth() === new Date().getMonth()) return false;
-        // Rien à réclamer : mois offert, ou saison de la fiche pas encore commencée
+        // Rien à réclamer : mois offert (inscrit en fin de mois), OFF, arrêté, ou saison pas encore commencée
         if (getStatutMoisEnCours(r, tarifs.jourLimitePaiement, mensualiteFiche(r, tarifs, currentMonthStr())).status === "offert") return false;
         return true;
       })

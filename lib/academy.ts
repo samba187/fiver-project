@@ -194,6 +194,72 @@ export function mensualiteFiche(r: FicheTarifable, t: TarifsMensuels, mois?: str
   return base + (coranFacture(r, mois) ? t.tarifCoran ?? TARIF_CORAN_DEFAUT : 0);
 }
 
+// ---------- État d'un mois : LA règle commune à tous les écrans ----------
+// Grille admin, Espace Parents, fiche joueur, tableau de bord, scanner et rappels
+// passent tous par etatMois() : un mois a le même état partout.
+
+export type EtatMois =
+  | "avant_saison"      // mois d'avant la saison de la fiche
+  | "avant_inscription" // mois d'avant le mois d'inscription (rien de payé)
+  | "offert"            // inscrit en fin de mois : son premier mois est offert
+  | "arrete"            // enfant arrêté à partir de ce mois
+  | "off"               // mois mis en pause (OFF)
+  | "paye" | "partiel"
+  | "a_payer"           // mois en cours, avant le jour limite
+  | "retard"            // mois passé, ou mois en cours après le jour limite
+  | "a_venir";
+
+export interface FicheMois extends FicheTarifable, AbonnementSource {
+  saison?: string | null;
+  created_at?: string | null;
+  inscription_fin_de_mois?: boolean | null;
+}
+
+export interface ResultatMois {
+  etat: EtatMois;
+  /** Mensualité de ce mois */
+  du: number;
+  /** Encaissé pour ce mois (hors OFF) */
+  paye: number;
+  /** Ce qu'il reste à payer (0 si rien n'est dû ce mois-ci) */
+  reste: number;
+  /** Le mois compte-t-il dans ce que l'enfant doit (tableau de bord, relances) ? */
+  exigible: boolean;
+}
+
+export function etatMois(
+  r: FicheMois, mois: string,
+  options: { tarifs?: TarifsMensuels | null; du?: number; jourLimite?: number; aujourdhui?: Date },
+): ResultatMois {
+  const historique = (r.academy_payments_history || []).filter(h => h.mois_concerne === mois);
+  const paye = historique.filter(h => h.moyen_paiement !== "OFF").reduce((s, h) => s + (Number(h.montant) || 0), 0);
+  const du = options.du ?? ((options.tarifs ? mensualiteFiche(r, options.tarifs, mois) : 0) || r.tarif_total || 0);
+  const res = (etat: EtatMois, exigible: boolean): ResultatMois => ({ etat, du, paye, exigible, reste: exigible ? Math.max(0, du - paye) : 0 });
+
+  const debut = debutSaison(r.saison);
+  if (debut && mois < debut) return res("avant_saison", false);
+  if (estArrete(r, mois)) return res("arrete", false);
+  if (historique.some(h => h.moyen_paiement === "OFF") && paye === 0) return res("off", false);
+  const moisInscription = r.created_at ? currentMonthStr(new Date(r.created_at)) : null;
+  if (r.inscription_fin_de_mois && moisInscription === mois) return res("offert", false);
+  if (moisInscription && mois < moisInscription && paye === 0) return res("avant_inscription", false);
+
+  if (paye > 0 && paye >= du) return res("paye", true);
+  if (paye > 0) return res("partiel", true);
+  const aujourdhui = options.aujourdhui || new Date();
+  const actuel = currentMonthStr(aujourdhui);
+  if (mois > actuel) return res("a_venir", true);
+  if (mois < actuel || aujourdhui.getDate() > (options.jourLimite || 10)) return res("retard", true);
+  return res("a_payer", true);
+}
+
+/** Scanner de l'accueil : statut à afficher pour le mois en cours (même règle que partout). */
+export function statutAccueil(r: FicheMois, tarifs: TarifsMensuels | null, jourLimite: number, aujourdhui = new Date()): { statut: MonthStatus; enDelai: boolean } {
+  const e = etatMois(r, currentMonthStr(aujourdhui), { tarifs, jourLimite, aujourdhui });
+  const statut: MonthStatus = !e.exigible ? "off" : e.etat === "paye" ? "paye" : e.etat === "partiel" ? "partiel" : "non_paye";
+  return { statut, enDelai: e.etat === "a_payer" };
+}
+
 // ---------- Planning des entraînements ----------
 
 export interface CreneauPlanning {
