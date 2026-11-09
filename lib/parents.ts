@@ -154,6 +154,9 @@ export function statutMoisEnfant(e: EnfantParent, mois: string, tarifs: DonneesP
   const paye = e.academy_payments_history.filter(h => h.mois_concerne === mois && h.moyen_paiement !== "OFF").reduce((s, h) => s + h.montant, 0);
   const debut = debutSaison(e.saison);
   if (debut && mois < debut) return { statut: "avant_saison", du, paye };
+  // Mois d'avant l'inscription (ex : réinscrit en novembre) : rien à payer, comme dans le tableau de bord admin
+  const moisInscription = e.created_at ? currentMonthStr(new Date(e.created_at)) : null;
+  if (moisInscription && mois < moisInscription && paye === 0) return { statut: "avant_saison", du, paye };
   if (estArrete(e, mois)) return { statut: "arrete", du, paye };
   if (e.inscription_fin_de_mois && currentMonthStr(new Date(e.created_at)) === mois) return { statut: "offert", du, paye };
   const s: MonthStatus = getMonthStatus(e, mois, du);
